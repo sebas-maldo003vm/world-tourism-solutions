@@ -16,6 +16,7 @@ import { api } from '@/core/api/client';
 
 interface Service {
   id: number;
+  providerId?: number;
   providerUserId?: number;
   businessName?: string;
   title?: string;
@@ -217,7 +218,7 @@ export function HomeUsuarioLogueado() {
                     key={service.id}
                     service={{
                       id: service.id.toString(),
-                      providerUserId: service.providerUserId,
+                      providerId: service.providerId,
                       name: getServiceName(service),
                       description:
                         service.description || '',

@@ -16,7 +16,9 @@ import java.time.Instant;
 @Entity
 @Table(
 		name = "favorites",
-		uniqueConstraints = @UniqueConstraint(name = "uq_favorite_business", columnNames = {"user_id", "business_id"}))
+		uniqueConstraints = @UniqueConstraint(
+				name = "uq_favorite_user_provider",
+				columnNames = {"user_id", "provider_profile_id"}))
 public class Favorite {
 
 	@Id
@@ -31,8 +33,8 @@ public class Favorite {
 	private AppUser user;
 
 	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "business_id", nullable = false)
-	private ProviderProfile business;
+	@JoinColumn(name = "provider_profile_id", nullable = false)
+	private ProviderProfile providerProfile;
 
 	@PrePersist
 	void prePersist() {
@@ -65,11 +67,20 @@ public class Favorite {
 		this.user = user;
 	}
 
+	public ProviderProfile getProviderProfile() {
+		return providerProfile;
+	}
+
+	public void setProviderProfile(ProviderProfile providerProfile) {
+		this.providerProfile = providerProfile;
+	}
+
+	/** Compat API: favorite target is the saved ProviderProfile (SCRUM-21). */
 	public ProviderProfile getBusiness() {
-		return business;
+		return providerProfile;
 	}
 
 	public void setBusiness(ProviderProfile business) {
-		this.business = business;
+		this.providerProfile = business;
 	}
 }

@@ -27,15 +27,25 @@ export interface FavoriteStatus {
   favorite: boolean;
 }
 
+function authHeaders() {
+  const token = localStorage.getItem('token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export const favoritesApi = {
-  list: () => api.get<FavoriteItem[]>('/favorites'),
+  list: () =>
+    api.get<FavoriteItem[]>('/favorites', { headers: authHeaders() }),
 
-  add: (businessId: number) =>
-    api.post<FavoriteItem>(`/favorites/${businessId}`),
+  add: (providerProfileId: number) =>
+    api.post<FavoriteItem>(`/favorites/${providerProfileId}`, null, {
+      headers: authHeaders(),
+    }),
 
-  remove: (businessId: number) =>
-    api.delete(`/favorites/${businessId}`),
+  remove: (providerProfileId: number) =>
+    api.delete(`/favorites/${providerProfileId}`, { headers: authHeaders() }),
 
-  status: (businessId: number) =>
-    api.get<FavoriteStatus>(`/favorites/${businessId}/status`),
+  status: (providerProfileId: number) =>
+    api.get<FavoriteStatus>(`/favorites/${providerProfileId}/status`, {
+      headers: authHeaders(),
+    }),
 };

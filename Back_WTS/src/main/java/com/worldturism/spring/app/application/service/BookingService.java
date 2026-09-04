@@ -47,7 +47,7 @@ public class BookingService {
         booking.setEndTime(request.endTime());
         booking.setNumPeople(request.numPeople());
         booking.setTotalPrice(
-                parseBusinessPrice(business.getPrice())
+                requireBusinessPrice(business.getPrice())
                         .multiply(BigDecimal.valueOf(request.numPeople())));
 
         return BookingResponse.from(bookingRepository.save(booking));
@@ -124,30 +124,11 @@ public class BookingService {
         return BookingResponse.from(bookingRepository.save(booking));
     }
 
-    private BigDecimal parseBusinessPrice(String price) {
-        if (price == null || price.isBlank()) {
-            throw new IllegalArgumentException("El negocio no tiene precio configurado.");
+    private BigDecimal requireBusinessPrice(BigDecimal price) {
+        if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("El negocio no tiene un precio válido configurado.");
         }
-
-        String normalizedPrice = price.trim().replace(" ", "");
-        if (normalizedPrice.contains(",")) {
-            normalizedPrice = normalizedPrice.replace(".", "").replace(",", ".");
-        } else {
-            int lastDotIndex = normalizedPrice.lastIndexOf(".");
-            if (lastDotIndex >= 0 && normalizedPrice.length() - lastDotIndex - 1 == 3) {
-                normalizedPrice = normalizedPrice.replace(".", "");
-            }
-        }
-
-        try {
-            BigDecimal parsedPrice = new BigDecimal(normalizedPrice);
-            if (parsedPrice.compareTo(BigDecimal.ZERO) <= 0) {
-                throw new IllegalArgumentException("El precio del negocio debe ser mayor a cero.");
-            }
-            return parsedPrice;
-        } catch (NumberFormatException exception) {
-            throw new IllegalArgumentException("El precio del negocio no tiene un formato valido.");
-        }
+        return price;
     }
 
     private void validateUser(AppUser user) {

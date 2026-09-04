@@ -18,7 +18,7 @@ public record BookingResponse(
         Instant createdAt,
         Long businessId,
         String businessName,
-        String businessPrice,
+        BigDecimal businessPrice,
         String businessCity,
         String businessAddress,
         String businessCategory,

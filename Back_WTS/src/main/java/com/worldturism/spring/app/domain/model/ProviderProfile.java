@@ -1,8 +1,7 @@
 package com.worldturism.spring.app.domain.model;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
-import jakarta.persistence.CollectionTable;
-import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -13,8 +12,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
-import jakarta.persistence.OrderColumn;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,8 +44,8 @@ public class ProviderProfile {
 	@Column(length = 80)
 	private String category;
 
-	@Column(length = 30)
-	private String price;
+	@Column(precision = 10, scale = 2)
+	private BigDecimal price;
 
 	private Float avgRating = 0.0f;
 
@@ -59,26 +59,24 @@ public class ProviderProfile {
 
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
-	private ServiceStatus status = ServiceStatus.APPROVED;
+	private ServiceStatus status = ServiceStatus.PENDING;
 
-	@ElementCollection
-	@CollectionTable(name = "provider_profile_images", joinColumns = @JoinColumn(name = "provider_profile_id"))
-	@OrderColumn(name = "image_order")
-	@Column(name = "image_url", length = 300, nullable = false)
-	private List<String> imageUrls = new ArrayList<>();
+	@OneToMany(mappedBy = "providerProfile", cascade = CascadeType.ALL, orphanRemoval = true)
+	@OrderBy("imageOrder ASC")
+	private List<ProviderProfileImage> images = new ArrayList<>();
 
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "user_id", nullable = false)
 	private AppUser user;
 
-	@OneToMany(mappedBy = "provider", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
-	private List<TourService> services = new ArrayList<>();
-
-	@OneToMany(mappedBy = "providerBusiness", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
+	@OneToMany(mappedBy = "providerBusiness", cascade = CascadeType.ALL, orphanRemoval = true)
 	private List<Booking> bookings = new ArrayList<>();
 
-	@OneToMany(mappedBy = "providerBusiness", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
+	@OneToMany(mappedBy = "providerBusiness", cascade = CascadeType.ALL, orphanRemoval = true)
 	private List<Review> reviews = new ArrayList<>();
+
+	@OneToMany(mappedBy = "provider", cascade = CascadeType.ALL, orphanRemoval = true)
+	private List<Conversation> conversations = new ArrayList<>();
 
 	public Long getId() {
 		return id;
@@ -136,11 +134,11 @@ public class ProviderProfile {
 		this.category = category;
 	}
 
-	public String getPrice() {
+	public BigDecimal getPrice() {
 		return price;
 	}
 
-	public void setPrice(String price) {
+	public void setPrice(BigDecimal price) {
 		this.price = price;
 	}
 
@@ -184,12 +182,31 @@ public class ProviderProfile {
 		this.status = status;
 	}
 
+	public List<ProviderProfileImage> getImages() {
+		return images;
+	}
+
+	public void setImages(List<ProviderProfileImage> images) {
+		this.images = images;
+	}
+
 	public List<String> getImageUrls() {
-		return imageUrls;
+		return images.stream().map(ProviderProfileImage::getImageUrl).toList();
 	}
 
 	public void setImageUrls(List<String> imageUrls) {
-		this.imageUrls = imageUrls;
+		images.clear();
+		if (imageUrls == null) {
+			return;
+		}
+		int order = 0;
+		for (String imageUrl : imageUrls) {
+			ProviderProfileImage image = new ProviderProfileImage();
+			image.setImageUrl(imageUrl);
+			image.setImageOrder(order++);
+			image.setProviderProfile(this);
+			images.add(image);
+		}
 	}
 
 	public AppUser getUser() {
@@ -198,14 +215,6 @@ public class ProviderProfile {
 
 	public void setUser(AppUser user) {
 		this.user = user;
-	}
-
-	public List<TourService> getServices() {
-		return services;
-	}
-
-	public void setServices(List<TourService> services) {
-		this.services = services;
 	}
 
 	public List<Booking> getBookings() {
@@ -222,5 +231,13 @@ public class ProviderProfile {
 
 	public void setReviews(List<Review> reviews) {
 		this.reviews = reviews;
+	}
+
+	public List<Conversation> getConversations() {
+		return conversations;
+	}
+
+	public void setConversations(List<Conversation> conversations) {
+		this.conversations = conversations;
 	}
 }

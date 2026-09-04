@@ -1,5 +1,6 @@
 export interface Service {
   id: string;
+  providerId?: number;
   providerUserId?: number;
   name: string;
   category: 'Restaurantes' | 'Actividades' | 'Hospedaje';

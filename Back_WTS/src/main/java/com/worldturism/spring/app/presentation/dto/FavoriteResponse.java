@@ -12,6 +12,6 @@ public record FavoriteResponse(
 		return new FavoriteResponse(
 				favorite.getId(),
 				favorite.getSavedAt(),
-				ProviderResponse.from(favorite.getBusiness()));
+				ProviderResponse.from(favorite.getProviderProfile()));
 	}
 }

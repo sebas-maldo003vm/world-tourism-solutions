@@ -41,10 +41,6 @@ public class Review {
 	private AppUser user;
 
 	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "service_id")
-	private TourService service;
-
-	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "provider_profile_id")
 	private ProviderProfile providerBusiness;
 
@@ -97,14 +93,6 @@ public class Review {
 
 	public void setUser(AppUser user) {
 		this.user = user;
-	}
-
-	public TourService getService() {
-		return service;
-	}
-
-	public void setService(TourService service) {
-		this.service = service;
 	}
 
 	public ProviderProfile getProviderBusiness() {

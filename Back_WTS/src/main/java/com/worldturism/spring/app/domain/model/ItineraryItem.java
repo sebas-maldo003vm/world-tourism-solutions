@@ -33,8 +33,8 @@ public class ItineraryItem {
 	private Itinerary itinerary;
 
 	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "service_id", nullable = false)
-	private TourService service;
+	@JoinColumn(name = "provider_profile_id", nullable = false)
+	private ProviderProfile providerProfile;
 
 	@PrePersist
 	void prePersist() {
@@ -83,11 +83,11 @@ public class ItineraryItem {
 		this.itinerary = itinerary;
 	}
 
-	public TourService getService() {
-		return service;
+	public ProviderProfile getProviderProfile() {
+		return providerProfile;
 	}
 
-	public void setService(TourService service) {
-		this.service = service;
+	public void setProviderProfile(ProviderProfile providerProfile) {
+		this.providerProfile = providerProfile;
 	}
 }

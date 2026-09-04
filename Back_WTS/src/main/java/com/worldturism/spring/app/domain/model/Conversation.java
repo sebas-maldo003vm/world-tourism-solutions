@@ -38,7 +38,7 @@ public class Conversation {
 	private ConversationType conversationType = ConversationType.CLIENT_TO_PROVIDER;
 
 	@Enumerated(EnumType.STRING)
-	@Column(length = 20)
+	@Column(length = 30)
 	private SupportStatus supportStatus;
 
 	@Enumerated(EnumType.STRING)
@@ -53,12 +53,8 @@ public class Conversation {
 	private AppUser user;
 
 	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "provider_id")
-	private AppUser provider;
-
-	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "service_id")
-	private TourService service;
+	@JoinColumn(name = "provider_profile_id", nullable = true)
+	private ProviderProfile provider;
 
 	@OneToMany(mappedBy = "conversation", cascade = CascadeType.ALL, orphanRemoval = true)
 	@OrderBy("sentAt ASC")
@@ -139,20 +135,12 @@ public class Conversation {
 		this.user = user;
 	}
 
-	public AppUser getProvider() {
+	public ProviderProfile getProvider() {
 		return provider;
 	}
 
-	public void setProvider(AppUser provider) {
+	public void setProvider(ProviderProfile provider) {
 		this.provider = provider;
-	}
-
-	public TourService getService() {
-		return service;
-	}
-
-	public void setService(TourService service) {
-		this.service = service;
 	}
 
 	public List<Message> getMessages() {

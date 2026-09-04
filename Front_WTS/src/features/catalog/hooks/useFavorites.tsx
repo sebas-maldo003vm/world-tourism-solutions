@@ -13,30 +13,53 @@ import {
   type FavoriteItem,
 } from '@/features/catalog/services/favoritesApi';
 
+export const AUTH_CHANGED_EVENT = 'wts:auth-changed';
+
+export function notifyAuthChanged() {
+  window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
+}
+
 interface FavoritesContextValue {
   favorites: FavoriteItem[];
   loading: boolean;
   isFavorite: (businessId: number | string) => boolean;
   toggleFavorite: (businessId: number | string) => Promise<void>;
   refreshFavorites: () => Promise<void>;
+  clearFavorites: () => void;
 }
 
 const FavoritesContext = createContext<FavoritesContextValue | null>(null);
 
-function isAuthenticated() {
-  return Boolean(localStorage.getItem('token'));
+function readAuthUserId(): number | null {
+  const token = localStorage.getItem('token');
+  const raw = localStorage.getItem('user');
+  if (!token || !raw) {
+    return null;
+  }
+  try {
+    const id = Number(JSON.parse(raw).id);
+    return Number.isFinite(id) ? id : null;
+  } catch {
+    return null;
+  }
 }
 
 export function FavoritesProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const [authUserId, setAuthUserId] = useState<number | null>(() => readAuthUserId());
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
 
+  const clearFavorites = useCallback(() => {
+    setFavorites([]);
+    setFavoriteIds(new Set());
+  }, []);
+
   const refreshFavorites = useCallback(async () => {
-    if (!isAuthenticated()) {
-      setFavorites([]);
-      setFavoriteIds(new Set());
+    const userId = readAuthUserId();
+    if (userId == null) {
+      clearFavorites();
       return;
     }
 
@@ -50,14 +73,35 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       setFavoriteIds(new Set(items.map((item) => item.business.id)));
     } catch (error) {
       console.error('Error cargando favoritos', error);
+      clearFavorites();
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearFavorites]);
+
+  useEffect(() => {
+    const syncAuth = () => {
+      const nextId = readAuthUserId();
+      setAuthUserId((current) => {
+        if (current !== nextId) {
+          clearFavorites();
+        }
+        return nextId;
+      });
+    };
+
+    window.addEventListener('storage', syncAuth);
+    window.addEventListener(AUTH_CHANGED_EVENT, syncAuth);
+
+    return () => {
+      window.removeEventListener('storage', syncAuth);
+      window.removeEventListener(AUTH_CHANGED_EVENT, syncAuth);
+    };
+  }, [clearFavorites]);
 
   useEffect(() => {
     refreshFavorites();
-  }, [refreshFavorites]);
+  }, [authUserId, refreshFavorites]);
 
   const isFavorite = useCallback(
     (businessId: number | string) => favoriteIds.has(Number(businessId)),
@@ -66,7 +110,7 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
 
   const toggleFavorite = useCallback(
     async (businessId: number | string) => {
-      if (!isAuthenticated()) {
+      if (readAuthUserId() == null) {
         navigate('/login');
         return;
       }
@@ -104,8 +148,9 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       isFavorite,
       toggleFavorite,
       refreshFavorites,
+      clearFavorites,
     }),
-    [favorites, loading, isFavorite, toggleFavorite, refreshFavorites]
+    [favorites, loading, isFavorite, toggleFavorite, refreshFavorites, clearFavorites]
   );
 
   return (

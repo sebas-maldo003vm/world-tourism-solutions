@@ -1,5 +1,6 @@
 package com.worldturism.spring.app.presentation.dto;
 
+import com.worldturism.spring.app.domain.model.AppUser;
 import com.worldturism.spring.app.domain.model.Conversation;
 import com.worldturism.spring.app.domain.model.ConversationType;
 import com.worldturism.spring.app.domain.model.ProviderProfile;
@@ -31,27 +32,30 @@ public record ConversationResponse(
 			String lastMessage,
 			long unreadCount,
 			Long currentUserId) {
+		ProviderProfile providerProfile = conversation.getProvider();
+		AppUser providerUser = providerProfile != null ? providerProfile.getUser() : null;
+
 		Long otherId = null;
 		String otherName = null;
 		if (conversation.getConversationType() == ConversationType.CLIENT_TO_PROVIDER) {
 			if (currentUserId != null && currentUserId.equals(conversation.getUser().getId())) {
-				otherId = conversation.getProvider() != null ? conversation.getProvider().getId() : null;
-				otherName = conversation.getProvider() != null
-						? conversation.getProvider().getBusinessName()
-						: null;
+				otherId = providerUser != null ? providerUser.getId() : null;
+				otherName = providerProfile != null && providerProfile.getBusinessName() != null
+						? providerProfile.getBusinessName()
+						: (providerUser != null ? providerUser.getName() : null);
 			} else {
 				otherId = conversation.getUser().getId();
 				otherName = conversation.getUser().getName();
 			}
 		}
 
-		ProviderProfile provider = conversation.getProvider();
-		Long providerProfileId = provider != null ? provider.getId() : null;
-		String businessName = provider != null ? provider.getBusinessName() : null;
+		// providerId: alias de providerProfileId (el front inicia chat con el id del negocio).
+		Long providerProfileId = providerProfile != null ? providerProfile.getId() : null;
+		String businessName = providerProfile != null ? providerProfile.getBusinessName() : null;
 		String providerProfileName = businessName != null ? businessName : conversation.getSubject();
-		String logoUrl = provider != null ? provider.getLogoUrl() : null;
-		String category = provider != null ? provider.getCategory() : null;
-		String city = provider != null ? provider.getCity() : null;
+		String logoUrl = providerProfile != null ? providerProfile.getLogoUrl() : null;
+		String category = providerProfile != null ? providerProfile.getCategory() : null;
+		String city = providerProfile != null ? providerProfile.getCity() : null;
 		String displayName = resolveDisplayName(conversation, businessName, otherName);
 
 		return new ConversationResponse(

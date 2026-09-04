@@ -9,7 +9,7 @@ import java.time.Instant;
 public record SupportTicketResponse(
 		Long id,
 		String userName,
-		String serviceName,
+		String subject,
 		SupportUrgency urgency,
 		String message,
 		Instant createdAt,
@@ -17,18 +17,16 @@ public record SupportTicketResponse(
 		ConversationType conversationType) {
 
 	public static SupportTicketResponse from(Conversation conversation) {
-		String initialMessage = conversation.getMessages().isEmpty()
+		String latestMessage = conversation.getMessages().isEmpty()
 				? ""
-				: conversation.getMessages().get(0).getContent();
-		String serviceName = conversation.getService() != null
-				? conversation.getService().getTitle()
-				: (conversation.getSubject() != null ? conversation.getSubject() : "General");
+				: conversation.getMessages().get(conversation.getMessages().size() - 1).getContent();
+		String subject = conversation.getSubject() != null ? conversation.getSubject() : "General";
 		return new SupportTicketResponse(
 				conversation.getId(),
 				conversation.getUser().getName(),
-				serviceName,
+				subject,
 				conversation.getUrgency() != null ? conversation.getUrgency() : SupportUrgency.MEDIUM,
-				initialMessage,
+				latestMessage,
 				conversation.getCreatedAt(),
 				conversation.getSupportStatus() != null ? conversation.getSupportStatus() : SupportStatus.OPEN,
 				conversation.getConversationType());

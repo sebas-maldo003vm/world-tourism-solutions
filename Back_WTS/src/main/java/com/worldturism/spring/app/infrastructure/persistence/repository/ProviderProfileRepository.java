@@ -5,6 +5,7 @@ import com.worldturism.spring.app.domain.model.ServiceStatus;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 public interface ProviderProfileRepository extends JpaRepository<ProviderProfile, Long> {
 
@@ -14,6 +15,7 @@ public interface ProviderProfileRepository extends JpaRepository<ProviderProfile
 
 	List<ProviderProfile> findByUserIdOrderByIdDesc(Long userId);
 
+	@Query("SELECT p FROM ProviderProfile p JOIN FETCH p.user ORDER BY p.id DESC")
 	List<ProviderProfile> findAllByOrderByIdDesc();
 
 	List<ProviderProfile> findByStatusOrderByIdDesc(ServiceStatus status);

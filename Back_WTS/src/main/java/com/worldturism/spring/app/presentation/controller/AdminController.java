@@ -1,7 +1,6 @@
 package com.worldturism.spring.app.presentation.controller;
 
 import com.worldturism.spring.app.application.service.AdminBusinessService;
-import com.worldturism.spring.app.application.service.AdminTourServiceManager;
 import com.worldturism.spring.app.application.service.AdminUserService;
 import com.worldturism.spring.app.domain.model.AppUser;
 import com.worldturism.spring.app.infrastructure.persistence.repository.UserRepository;
@@ -9,7 +8,6 @@ import com.worldturism.spring.app.presentation.dto.AdminBusinessResponse;
 import com.worldturism.spring.app.presentation.dto.AdminBusinessStatusRequest;
 import com.worldturism.spring.app.presentation.dto.AdminStatsResponse;
 import com.worldturism.spring.app.presentation.dto.AdminUserUpdateRequest;
-import com.worldturism.spring.app.presentation.dto.TourServiceResponse;
 import com.worldturism.spring.app.presentation.dto.UserResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -29,32 +27,27 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/admin")
-@Tag(name = "Administracion", description = "Gestion de usuarios, negocios y servicios (solo ADMIN).")
+@Tag(name = "Administracion", description = "Gestion de usuarios y negocios (ADMIN; SUPPORT con acceso de solo lectura/estado).")
 public class AdminController {
 
 	private final AdminUserService adminUserService;
 	private final AdminBusinessService adminBusinessService;
-	private final AdminTourServiceManager adminTourServiceManager;
 	private final UserRepository userRepository;
 
 	public AdminController(
 			AdminUserService adminUserService,
 			AdminBusinessService adminBusinessService,
-			AdminTourServiceManager adminTourServiceManager,
 			UserRepository userRepository) {
 		this.adminUserService = adminUserService;
 		this.adminBusinessService = adminBusinessService;
-		this.adminTourServiceManager = adminTourServiceManager;
 		this.userRepository = userRepository;
 	}
 
 	@GetMapping("/stats")
-	@Operation(summary = "Estadisticas del panel", description = "Totales de usuarios, servicios y negocios.")
+	@Operation(summary = "Estadisticas del panel", description = "Totales de usuarios y negocios.")
 	public AdminStatsResponse stats() {
 		return new AdminStatsResponse(
 				userRepository.count(),
-				adminTourServiceManager.countAll(),
-				adminTourServiceManager.countPending(),
 				adminBusinessService.countAll(),
 				adminBusinessService.countPending());
 	}
@@ -100,26 +93,5 @@ public class AdminController {
 	@Operation(summary = "Eliminar negocio", description = "Elimina un negocio del sistema.")
 	public void deleteBusiness(@PathVariable Long id) {
 		adminBusinessService.delete(id);
-	}
-
-	@GetMapping("/services")
-	@Operation(summary = "Listar servicios", description = "Devuelve todos los servicios turisticos registrados.")
-	public List<TourServiceResponse> listServices() {
-		return adminTourServiceManager.listAll();
-	}
-
-	@PatchMapping("/services/{id}/status")
-	@Operation(summary = "Cambiar estado de servicio", description = "Aprueba, rechaza o desactiva un servicio.")
-	public TourServiceResponse updateServiceStatus(
-			@PathVariable Long id,
-			@Valid @RequestBody AdminBusinessStatusRequest request) {
-		return adminTourServiceManager.updateStatus(id, request);
-	}
-
-	@DeleteMapping("/services/{id}")
-	@ResponseStatus(HttpStatus.NO_CONTENT)
-	@Operation(summary = "Eliminar servicio", description = "Elimina un servicio del sistema.")
-	public void deleteService(@PathVariable Long id) {
-		adminTourServiceManager.delete(id);
 	}
 }

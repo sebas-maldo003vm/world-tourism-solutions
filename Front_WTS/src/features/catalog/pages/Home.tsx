@@ -5,6 +5,7 @@ import { api } from '@/core/api/client';
 
 interface Business {
   id: number;
+  providerId?: number;
   providerUserId?: number;
   businessName?: string;
   title?: string;
@@ -146,7 +147,7 @@ export function Home() {
                     key={business.id}
                     service={{
                       id: business.id.toString(),
-                      providerUserId: business.providerUserId,
+                      providerId: business.id,
                       name: getBusinessName(business),
                       description: business.description || '',
                       category: business.category || 'Actividades',

@@ -8,6 +8,7 @@ import com.worldturism.spring.app.infrastructure.persistence.repository.Provider
 import com.worldturism.spring.app.infrastructure.storage.ImageStorageService;
 import com.worldturism.spring.app.presentation.dto.ProviderBusinessRequest;
 import com.worldturism.spring.app.presentation.dto.ProviderResponse;
+import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,7 +40,7 @@ public class ProviderBusinessManager {
 		profile.setAddress(request.location());
 		profile.setCity(request.city());
 		profile.setCategory(request.category());
-		profile.setPrice(normalizePrice(request.price()));
+		profile.setPrice(parsePrice(request.price()));
 		profile.setWebsite(request.website());
 		profile.setLogoUrl(imageUrls.get(0));
 		profile.setImageUrls(imageUrls);
@@ -72,7 +73,7 @@ public class ProviderBusinessManager {
 		profile.setAddress(request.location());
 		profile.setCity(request.city());
 		profile.setCategory(request.category());
-		profile.setPrice(normalizePrice(request.price()));
+		profile.setPrice(parsePrice(request.price()));
 		profile.setWebsite(request.website());
 
 		if (images != null && !images.isEmpty()) {
@@ -97,16 +98,25 @@ public class ProviderBusinessManager {
 		providerProfileRepository.delete(providerProfile);
 	}
 
-	private String normalizePrice(String price) {
+	private BigDecimal parsePrice(String price) {
 		if (price == null || price.isBlank()) {
 			throw new IllegalArgumentException("El precio es obligatorio.");
 		}
 
-		String normalizedPrice = price.trim();
-		if (!normalizedPrice.matches("\\d+(?:[.,]\\d+)*")) {
+		String normalizedPrice = price.trim().replace(" ", "");
+		if (normalizedPrice.contains(",")) {
+			normalizedPrice = normalizedPrice.replace(".", "").replace(",", ".");
+		}
+
+		try {
+			BigDecimal parsedPrice = new BigDecimal(normalizedPrice);
+			if (parsedPrice.compareTo(BigDecimal.ZERO) < 0) {
+				throw new IllegalArgumentException("El precio no puede ser negativo.");
+			}
+			return parsedPrice;
+		} catch (NumberFormatException exception) {
 			throw new IllegalArgumentException("El precio debe tener un formato valido.");
 		}
-		return normalizedPrice;
 	}
 
 	private void validateProvider(AppUser user) {

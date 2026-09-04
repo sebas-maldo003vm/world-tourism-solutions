@@ -23,7 +23,14 @@ public class SqliteProviderProfileMigration implements ApplicationRunner {
 		}
 
 		boolean hasPriceColumn = hasColumn("provider_profiles", "price");
-		String priceSelection = hasPriceColumn ? "coalesce(price, '0')" : "'0'";
+		String priceSelection = hasPriceColumn
+				? """
+					CASE
+						WHEN price IS NULL OR trim(CAST(price AS text)) = '' THEN NULL
+						ELSE CAST(replace(replace(trim(CAST(price AS text)), ',', '.'), ' ', '') AS numeric)
+					END
+					"""
+				: "NULL";
 
 		jdbcTemplate.execute("PRAGMA foreign_keys=OFF");
 		try {
@@ -36,7 +43,7 @@ public class SqliteProviderProfileMigration implements ApplicationRunner {
 						city varchar(100),
 						description varchar(1000),
 						logo_url varchar(300),
-						price varchar(30) not null default '0',
+						price numeric(10,2),
 						tax_id varchar(60),
 						user_id bigint not null,
 						website varchar(200),

@@ -4,14 +4,13 @@ import com.worldturism.spring.app.domain.model.AppUser;
 import com.worldturism.spring.app.domain.model.Conversation;
 import com.worldturism.spring.app.domain.model.ConversationType;
 import com.worldturism.spring.app.domain.model.Message;
+import com.worldturism.spring.app.domain.model.ProviderProfile;
 import com.worldturism.spring.app.domain.model.Role;
 import com.worldturism.spring.app.domain.model.SupportStatus;
 import com.worldturism.spring.app.domain.model.SupportUrgency;
-import com.worldturism.spring.app.domain.model.TourService;
 import com.worldturism.spring.app.infrastructure.persistence.repository.ConversationRepository;
 import com.worldturism.spring.app.infrastructure.persistence.repository.MessageRepository;
-import com.worldturism.spring.app.infrastructure.persistence.repository.TourServiceRepository;
-import com.worldturism.spring.app.infrastructure.persistence.repository.UserRepository;
+import com.worldturism.spring.app.infrastructure.persistence.repository.ProviderProfileRepository;
 import com.worldturism.spring.app.presentation.dto.ConversationResponse;
 import com.worldturism.spring.app.presentation.dto.CreateSupportTicketRequest;
 import com.worldturism.spring.app.presentation.dto.MessageResponse;
@@ -33,18 +32,15 @@ public class SupportChatService {
 
 	private final ConversationRepository conversationRepository;
 	private final MessageRepository messageRepository;
-	private final UserRepository userRepository;
-	private final TourServiceRepository tourServiceRepository;
+	private final ProviderProfileRepository providerProfileRepository;
 
 	public SupportChatService(
 			ConversationRepository conversationRepository,
 			MessageRepository messageRepository,
-			UserRepository userRepository,
-			TourServiceRepository tourServiceRepository) {
+			ProviderProfileRepository providerProfileRepository) {
 		this.conversationRepository = conversationRepository;
 		this.messageRepository = messageRepository;
-		this.userRepository = userRepository;
-		this.tourServiceRepository = tourServiceRepository;
+		this.providerProfileRepository = providerProfileRepository;
 	}
 
 	@Transactional(readOnly = true)
@@ -63,22 +59,16 @@ public class SupportChatService {
 			throw new IllegalArgumentException("Solo los turistas pueden iniciar conversaciones con proveedores.");
 		}
 
-		AppUser provider = userRepository.findById(request.providerId())
-				.orElseThrow(() -> new IllegalArgumentException("El proveedor no existe."));
-		if (provider.getRole() != Role.PROVIDER) {
-			throw new IllegalArgumentException("El usuario indicado no es un proveedor.");
+		ProviderProfile providerProfile = providerProfileRepository.findById(request.providerProfileId())
+				.orElseThrow(() -> new IllegalArgumentException("El negocio del proveedor no existe."));
+		if (providerProfile.getUser() == null || providerProfile.getUser().getRole() != Role.PROVIDER) {
+			throw new IllegalArgumentException("El negocio indicado no pertenece a un proveedor.");
 		}
 
-		final TourService service = request.serviceId() != null
-				? tourServiceRepository.findById(request.serviceId())
-						.orElseThrow(() -> new IllegalArgumentException("El servicio no existe."))
-				: null;
-
-		Long serviceId = service != null ? service.getId() : null;
 		Conversation conversation = conversationRepository
-				.findByUserIdAndProviderIdAndServiceIdAndConversationType(
-						user.getId(), provider.getId(), serviceId, ConversationType.CLIENT_TO_PROVIDER)
-				.orElseGet(() -> createProviderConversation(user, provider, service));
+				.findByUserIdAndProviderIdAndConversationType(
+						user.getId(), providerProfile.getId(), ConversationType.CLIENT_TO_PROVIDER)
+				.orElseGet(() -> createProviderConversation(user, providerProfile));
 
 		if (request.initialMessage() != null && !request.initialMessage().isBlank()) {
 			appendMessage(conversation, user, request.initialMessage().trim());
@@ -125,6 +115,7 @@ public class SupportChatService {
 
 		Conversation conversation = new Conversation();
 		conversation.setUser(user);
+		conversation.setProvider(null);
 		conversation.setConversationType(type);
 		conversation.setSupportStatus(SupportStatus.OPEN);
 		conversation.setUrgency(request.urgency() != null ? request.urgency() : SupportUrgency.MEDIUM);
@@ -183,7 +174,8 @@ public class SupportChatService {
 		if (conversation.getSupportStatus() == SupportStatus.CLOSED) {
 			throw new IllegalArgumentException("El ticket de soporte está cerrado.");
 		}
-		if (conversation.getSupportStatus() == SupportStatus.OPEN) {
+		if (conversation.getSupportStatus() == SupportStatus.OPEN
+				|| conversation.getSupportStatus() == SupportStatus.NEEDS_HUMAN_SUPPORT) {
 			conversation.setSupportStatus(SupportStatus.IN_PROGRESS);
 		}
 		Message message = appendMessage(conversation, admin, request.content().trim());
@@ -192,17 +184,17 @@ public class SupportChatService {
 
 	private List<Conversation> findConversationsForUser(AppUser user) {
 		Map<Long, Conversation> unique = new LinkedHashMap<>();
-		if (user.getRole() == Role.ADMIN) {
+		if (isAdminOrSupport(user)) {
 			conversationRepository.findByConversationTypeInOrderByLastMessageAtDesc(
 					List.of(ConversationType.CLIENT_TO_SUPPORT, ConversationType.PROVIDER_TO_SUPPORT))
 					.forEach(conversation -> unique.put(conversation.getId(), conversation));
 		}
-		if (user.getRole() == Role.USER || user.getRole() == Role.ADMIN) {
+		if (user.getRole() == Role.USER || isAdminOrSupport(user)) {
 			conversationRepository.findByUserIdOrderByLastMessageAtDesc(user.getId())
 					.forEach(conversation -> unique.put(conversation.getId(), conversation));
 		}
-		if (user.getRole() == Role.PROVIDER || user.getRole() == Role.ADMIN) {
-			conversationRepository.findByProviderIdOrderByLastMessageAtDesc(user.getId())
+		if (user.getRole() == Role.PROVIDER || isAdminOrSupport(user)) {
+			conversationRepository.findByProvider_User_IdOrderByLastMessageAtDesc(user.getId())
 					.forEach(conversation -> unique.put(conversation.getId(), conversation));
 		}
 		return unique.values().stream()
@@ -210,11 +202,10 @@ public class SupportChatService {
 				.toList();
 	}
 
-	private Conversation createProviderConversation(AppUser user, AppUser provider, TourService service) {
+	private Conversation createProviderConversation(AppUser user, ProviderProfile providerProfile) {
 		Conversation conversation = new Conversation();
 		conversation.setUser(user);
-		conversation.setProvider(provider);
-		conversation.setService(service);
+		conversation.setProvider(providerProfile);
 		conversation.setConversationType(ConversationType.CLIENT_TO_PROVIDER);
 		return conversationRepository.save(conversation);
 	}
@@ -241,13 +232,15 @@ public class SupportChatService {
 	}
 
 	private boolean isParticipant(AppUser user, Conversation conversation) {
-		if (user.getRole() == Role.ADMIN) {
+		if (isAdminOrSupport(user)) {
 			return true;
 		}
 		if (conversation.getUser().getId().equals(user.getId())) {
 			return true;
 		}
-		return conversation.getProvider() != null && conversation.getProvider().getId().equals(user.getId());
+		return conversation.getProvider() != null
+				&& conversation.getProvider().getUser() != null
+				&& conversation.getProvider().getUser().getId().equals(user.getId());
 	}
 
 	private ConversationResponse toConversationResponse(Conversation conversation, Long currentUserId) {
@@ -270,10 +263,15 @@ public class SupportChatService {
 		}
 	}
 
+	private boolean isAdminOrSupport(AppUser user) {
+		return user.getRole() == Role.ADMIN || user.getRole() == Role.SUPPORT;
+	}
+
 	private void validateAdmin(AppUser user) {
 		validateAuthenticated(user);
-		if (user.getRole() != Role.ADMIN) {
-			throw new IllegalArgumentException("Solo los administradores pueden realizar esta acción.");
+		if (!isAdminOrSupport(user)) {
+			throw new IllegalArgumentException(
+					"Solo administradores o soporte pueden realizar esta acción.");
 		}
 	}
 }

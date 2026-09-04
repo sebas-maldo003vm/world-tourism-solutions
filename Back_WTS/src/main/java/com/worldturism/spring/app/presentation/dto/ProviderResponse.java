@@ -1,6 +1,7 @@
 package com.worldturism.spring.app.presentation.dto;
 
 import com.worldturism.spring.app.domain.model.ProviderProfile;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -13,7 +14,7 @@ public record ProviderResponse(
 		String address,
 		String city,
 		String category,
-		String price,
+		BigDecimal price,
 		Float avgRating,
 		Integer totalReviews,
 		String website,

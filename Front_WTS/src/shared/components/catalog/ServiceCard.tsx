@@ -172,12 +172,12 @@ export function ServiceCard({
           <Button
             variant="ghost"
             onClick={async () => {
-              if (!service.providerUserId) {
+              if (!service.providerId) {
                 navigate('/chat');
                 return;
               }
               setContacting(true);
-              await contactProvider(navigate, service.providerUserId);
+              await contactProvider(navigate, service.providerId);
               setContacting(false);
             }}
             disabled={contacting}

@@ -1,13 +1,12 @@
 import { api } from '@/core/api/client';
 
-export type UserRole = 'ADMIN' | 'USER' | 'PROVIDER';
+export type UserRole = 'ADMIN' | 'SUPPORT' | 'USER' | 'PROVIDER';
 
+/** Estados de negocio (APPROVED≈activo, INACTIVE≈inactivo, REJECTED≈suspendido). */
 export type ServiceStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'INACTIVE';
 
 export interface AdminStats {
   totalUsers: number;
-  totalServices: number;
-  pendingServices: number;
   totalBusinesses: number;
   pendingBusinesses: number;
 }
@@ -21,22 +20,6 @@ export interface AdminUser {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface AdminTourService {
-  id: number;
-  title: string;
-  description: string;
-  category: string;
-  price: number;
-  location?: string;
-  imageUrl?: string;
-  avgRating: number;
-  totalReviews: number;
-  status: ServiceStatus;
-  createdAt: string;
-  providerId: number;
-  providerBusinessName: string;
 }
 
 export interface AdminBusiness {
@@ -56,6 +39,22 @@ export interface AdminBusiness {
   status: ServiceStatus;
   providerName: string;
   providerEmail: string;
+}
+
+/** Fila unificada del panel (basada en ProviderProfile). */
+export interface AdminServiceRow {
+  id: number;
+  title: string;
+  description: string;
+  category: string;
+  price: number;
+  location?: string;
+  imageUrl?: string;
+  avgRating: number;
+  totalReviews: number;
+  status: ServiceStatus;
+  createdAt: string;
+  providerBusinessName: string;
 }
 
 export interface AdminUserUpdatePayload {
@@ -78,13 +77,6 @@ export const adminApi = {
     api.put<AdminUser>(`/admin/users/${id}`, payload),
 
   deleteUser: (id: number) => api.delete(`/admin/users/${id}`),
-
-  listServices: () => api.get<AdminTourService[]>('/admin/services'),
-
-  updateServiceStatus: (id: number, payload: AdminStatusPayload) =>
-    api.patch<AdminTourService>(`/admin/services/${id}/status`, payload),
-
-  deleteService: (id: number) => api.delete(`/admin/services/${id}`),
 
   listBusinesses: () => api.get<AdminBusiness[]>('/admin/businesses'),
 
