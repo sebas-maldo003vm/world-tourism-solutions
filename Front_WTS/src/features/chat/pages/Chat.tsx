@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/ui/input';
 import { Send, Paperclip, MoreVertical, ArrowLeft, Loader2, AlertCircle, Bot, Headphones } from 'lucide-react';
@@ -25,6 +25,17 @@ import {
   type ConversationItem,
   type SupportUrgency,
 } from '@/features/chat/services/chatApi';
+import {
+  conversationSubtitle,
+  conversationTitle,
+  counterpartyAvatarUrl,
+  initialsFromName,
+  isBotConversation,
+  isDirectProviderChat,
+  isHumanSupportChat,
+  isSupportType,
+  providerAvatarUrl,
+} from '@/features/chat/utils/conversationDisplay';
 
 const POLL_INTERVAL_MS = 5000;
 /** Altura del Header global (`h-16` = 4rem). */
@@ -41,54 +52,42 @@ function formatTime(value: string) {
   });
 }
 
-function isSupportType(type: ConversationItem['conversationType']) {
-  return type === 'CLIENT_TO_SUPPORT' || type === 'PROVIDER_TO_SUPPORT';
-}
-
-/** Chat comercial directo con proveedor humano. */
-function isDirectProviderChat(conv: ConversationItem): boolean {
-  if (conv.conversationType === 'CLIENT_TO_PROVIDER') return true;
-  const providerId = conv.providerId ?? conv.providerProfileId;
-  return providerId != null && !isSupportType(conv.conversationType);
-}
-
 function sortByLastMessage(list: ConversationItem[]) {
   return [...list].sort(
     (a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime(),
   );
 }
 
-/** Título visible en lista y encabezado. */
-function conversationTitle(conv: ConversationItem): string {
-  if (isSupportType(conv.conversationType)) {
-    return 'Soporte Técnico';
-  }
-  const fromApi = conv.displayName?.trim();
-  if (fromApi && fromApi !== 'Conversación') {
-    return fromApi;
+function AvatarBadge({
+  url,
+  name,
+  className = 'h-10 w-10',
+}: {
+  url: string | null;
+  name: string;
+  className?: string;
+}) {
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt={name}
+        className={`${className} shrink-0 rounded-full object-cover bg-gray-100`}
+      />
+    );
   }
   return (
-    conv.businessName?.trim() ||
-    conv.providerProfileName?.trim() ||
-    fromApi ||
-    'Conversación'
+    <div
+      className={`${className} flex shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600`}
+    >
+      {initialsFromName(name)}
+    </div>
   );
-}
-
-/** Subtítulo del chat activo: categoría/ciudad del proveedor o canal de soporte. */
-function conversationSubtitle(conv: ConversationItem): string {
-  if (isSupportType(conv.conversationType)) {
-    return 'Canal de soporte';
-  }
-  const parts = [conv.category, conv.city].filter((part) => part && part.trim());
-  if (parts.length > 0) {
-    return parts.join(' · ');
-  }
-  return 'Contacto directo con proveedor';
 }
 
 export function Chat() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const [directConversations, setDirectConversations] = useState<ConversationItem[]>([]);
   const [supportConversations, setSupportConversations] = useState<ConversationItem[]>([]);
@@ -115,9 +114,11 @@ export function Chat() {
       return null;
     }
   })();
-  const isAdmin = currentUser?.role === 'ADMIN';
-  const isSupport = currentUser?.role === 'SUPPORT';
+  const viewerRole = currentUser?.role ?? null;
+  const isAdmin = viewerRole === 'ADMIN';
+  const isSupport = viewerRole === 'SUPPORT';
   const isStaff = isAdmin || isSupport;
+  const isProvider = viewerRole === 'PROVIDER';
 
   const visibleConversations =
     inboxTab === 'direct' ? directConversations : supportConversations;
@@ -125,12 +126,14 @@ export function Chat() {
   const loadConversations = useCallback(async () => {
     try {
       const { data } = await chatApi.listConversations();
-      const providerChats = sortByLastMessage(data.filter(isDirectProviderChat));
-      const supportChats = sortByLastMessage(data.filter((c) => isSupportType(c.conversationType)));
+      // Aislamiento bot: nunca listar CATALOG_INQUIRY / Asistente Virtual en bandeja.
+      const humanOnly = data.filter((c) => !isBotConversation(c));
+      const providerChats = sortByLastMessage(humanOnly.filter(isDirectProviderChat));
+      const supportChats = sortByLastMessage(humanOnly.filter(isHumanSupportChat));
       setDirectConversations(providerChats);
       setSupportConversations(supportChats);
       setError(null);
-      return { providerChats, supportChats, all: data };
+      return { providerChats, supportChats, all: humanOnly };
     } catch {
       setError('No se pudieron cargar las conversaciones.');
       return { providerChats: [], supportChats: [], all: [] };
@@ -168,8 +171,23 @@ export function Chat() {
     }
     loadConversations().then(({ providerChats, supportChats, all }) => {
       const conversationParam = searchParams.get('conversation');
-      if (conversationParam && all.length > 0) {
-        const target = all.find((c) => c.id === Number(conversationParam));
+      if (conversationParam) {
+        const targetId = Number(conversationParam);
+        let target = all.find((c) => c.id === targetId);
+        const fromState = (location.state as { conversation?: ConversationItem } | null)
+          ?.conversation;
+        if (!target && fromState && fromState.id === targetId) {
+          target = fromState;
+          if (isSupportType(fromState.conversationType)) {
+            setSupportConversations((prev) =>
+              prev.some((c) => c.id === fromState.id) ? prev : sortByLastMessage([fromState, ...prev]),
+            );
+          } else {
+            setDirectConversations((prev) =>
+              prev.some((c) => c.id === fromState.id) ? prev : sortByLastMessage([fromState, ...prev]),
+            );
+          }
+        }
         if (target) {
           setInboxTab(isSupportType(target.conversationType) ? 'support' : 'direct');
           setSelectedConversation(target);
@@ -181,7 +199,7 @@ export function Chat() {
         setInboxTab('support');
       }
     });
-  }, [navigate, loadConversations, searchParams, isStaff]);
+  }, [navigate, loadConversations, searchParams, isStaff, location.state]);
 
   useEffect(() => {
     if (!selectedConversation) return;
@@ -248,7 +266,10 @@ export function Chat() {
         conversationType: data.conversationType,
         supportStatus: data.status,
         urgency: data.urgency,
+        subject: data.subject,
         providerProfileName: data.subject,
+        assignedAdvisorId: data.assignedAdvisorId ?? undefined,
+        assignedAdvisorName: data.assignedAdvisorName ?? undefined,
       };
       setInboxTab('support');
       setSelectedConversation(supportConv);
@@ -264,6 +285,10 @@ export function Chat() {
     selectedConversation != null && isSupportType(selectedConversation.conversationType);
 
   const supportUnread = supportConversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
+
+  const listTitle = (conv: ConversationItem) => conversationTitle(conv, viewerRole);
+  const listSubtitle = (conv: ConversationItem) => conversationSubtitle(conv, viewerRole);
+  const listAvatar = (conv: ConversationItem) => counterpartyAvatarUrl(conv, viewerRole);
 
   return (
     <div
@@ -299,7 +324,11 @@ export function Chat() {
           <div className="flex-none border-b p-4">
             <h2 className="text-xl font-semibold">Bandeja</h2>
             <p className="mt-1 text-xs text-gray-500">
-              Chats con proveedores · soporte en pestaña aparte
+              {isProvider
+                ? 'Clientes que te contactaron · soporte aparte'
+                : isStaff
+                  ? 'Chats cliente↔negocio y tickets humanos (sin bot)'
+                  : 'Chats con proveedores · soporte en pestaña aparte'}
             </p>
 
             <div className="mt-3 flex gap-1 rounded-lg bg-gray-100 p-1">
@@ -318,7 +347,7 @@ export function Chat() {
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                Proveedores
+                {isProvider ? 'Clientes' : 'Proveedores'}
               </button>
               <button
                 type="button"
@@ -360,7 +389,11 @@ export function Chat() {
               <div className="space-y-3 p-4 text-center text-sm text-gray-500">
                 {inboxTab === 'direct' ? (
                   <p>
-                    No tienes chats con proveedores. Contacta uno desde un servicio del catálogo.
+                    {isProvider
+                      ? 'Aún no tienes mensajes de clientes.'
+                      : isStaff
+                        ? 'No hay chats cliente↔negocio.'
+                        : 'No tienes chats con proveedores. Contacta uno desde un servicio del catálogo.'}
                   </p>
                 ) : (
                   <>
@@ -374,36 +407,64 @@ export function Chat() {
               </div>
             ) : (
               <div className="divide-y">
-                {visibleConversations.map((conv) => (
-                  <button
-                    key={conv.id}
-                    type="button"
-                    onClick={() => handleSelectConversation(conv)}
-                    className={`w-full p-4 text-left hover:bg-gray-50 ${
-                      selectedConversation?.id === conv.id ? 'bg-blue-50' : ''
-                    }`}
-                  >
-                    <div className="mb-1 flex justify-between gap-2">
-                      <h3 className="truncate text-sm font-semibold">{conversationTitle(conv)}</h3>
-                      <span className="shrink-0 text-xs text-gray-500">
-                        {formatTime(conv.lastMessageAt)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <p className="truncate text-sm text-gray-600">
-                        {conv.lastMessage || 'Sin mensajes'}
-                      </p>
-                      {conv.unreadCount > 0 && (
-                        <div className="ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs text-white">
-                          {conv.unreadCount}
+                {visibleConversations.map((conv) => {
+                  const title = listTitle(conv);
+                  const avatar = listAvatar(conv);
+                  const businessAvatar =
+                    isStaff && conv.conversationType === 'CLIENT_TO_PROVIDER'
+                      ? providerAvatarUrl(conv)
+                      : null;
+                  return (
+                    <button
+                      key={conv.id}
+                      type="button"
+                      onClick={() => handleSelectConversation(conv)}
+                      className={`w-full p-4 text-left hover:bg-gray-50 ${
+                        selectedConversation?.id === conv.id ? 'bg-blue-50' : ''
+                      }`}
+                    >
+                      <div className="flex gap-3">
+                        <div className="relative shrink-0">
+                          <AvatarBadge url={avatar} name={title} />
+                          {businessAvatar && (
+                            <img
+                              src={businessAvatar}
+                              alt={conv.businessName || 'Negocio'}
+                              className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-2 border-white object-cover bg-gray-100"
+                            />
+                          )}
                         </div>
-                      )}
-                    </div>
-                    {isSupportType(conv.conversationType) && (
-                      <span className="mt-1 inline-block text-xs text-red-500">Soporte</span>
-                    )}
-                  </button>
-                ))}
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1 flex justify-between gap-2">
+                            <h3 className="truncate text-sm font-semibold">{title}</h3>
+                            <span className="shrink-0 text-xs text-gray-500">
+                              {formatTime(conv.lastMessageAt)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <p className="truncate text-sm text-gray-600">
+                              {conv.lastMessage || 'Sin mensajes'}
+                            </p>
+                            {conv.unreadCount > 0 && (
+                              <div className="ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs text-white">
+                                {conv.unreadCount}
+                              </div>
+                            )}
+                          </div>
+                          {isStaff && conv.conversationType === 'CLIENT_TO_PROVIDER' && (
+                            <span className="mt-1 block truncate text-xs text-slate-500">
+                              {conv.clientName || 'Cliente'} ↔{' '}
+                              {conv.businessName || conv.providerProfileName || 'Negocio'}
+                            </span>
+                          )}
+                          {isSupportType(conv.conversationType) && (
+                            <span className="mt-1 inline-block text-xs text-red-500">Soporte</span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -436,7 +497,7 @@ export function Chat() {
           ) : (
             <>
               <div className="flex flex-none items-start justify-between gap-3 border-b p-4">
-                <div className="min-w-0">
+                <div className="flex min-w-0 items-start gap-3">
                   <div className="mb-1 flex items-center gap-2 md:hidden">
                     <Button
                       variant="ghost"
@@ -447,12 +508,41 @@ export function Chat() {
                       <ArrowLeft className="h-4 w-4" />
                     </Button>
                   </div>
-                  <h2 className="truncate font-semibold">
-                    {conversationTitle(selectedConversation)}
-                  </h2>
-                  <p className="truncate text-sm text-gray-600">
-                    {conversationSubtitle(selectedConversation)}
-                  </p>
+                  <div className="relative hidden shrink-0 sm:block">
+                    <AvatarBadge
+                      url={listAvatar(selectedConversation)}
+                      name={listTitle(selectedConversation)}
+                      className="h-11 w-11"
+                    />
+                    {isStaff &&
+                      selectedConversation.conversationType === 'CLIENT_TO_PROVIDER' &&
+                      providerAvatarUrl(selectedConversation) && (
+                        <img
+                          src={providerAvatarUrl(selectedConversation)!}
+                          alt={selectedConversation.businessName || 'Negocio'}
+                          className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full border-2 border-white object-cover"
+                        />
+                      )}
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="truncate font-semibold">
+                      {listTitle(selectedConversation)}
+                    </h2>
+                    <p className="truncate text-sm text-gray-600">
+                      {listSubtitle(selectedConversation)}
+                    </p>
+                    {isStaff &&
+                      selectedConversation.conversationType === 'CLIENT_TO_PROVIDER' && (
+                        <p className="mt-1 truncate text-xs text-slate-500">
+                          Cliente: {selectedConversation.clientName || '—'} · Negocio:{' '}
+                          {selectedConversation.businessName ||
+                            selectedConversation.providerProfileName ||
+                            '—'}
+                          {selectedConversation.providerProfileId != null &&
+                            ` (#${selectedConversation.providerProfileId})`}
+                        </p>
+                      )}
+                  </div>
                 </div>
 
                 <div className="flex shrink-0 gap-2">

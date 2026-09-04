@@ -31,9 +31,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ChatBotService {
 
-	public static final String BOT_SUBJECT = "Asistente Virtual";
+	public static final String BOT_SUBJECT = Conversation.BOT_SUBJECT;
 	private static final String BOT_EMAIL = "bot@worldtourism.local";
-	private static final String BOT_NAME = "Asistente Virtual";
+	private static final String BOT_NAME = Conversation.BOT_SUBJECT;
 
 	private static final List<FaqRule> FAQ_RULES = List.of(
 			new FaqRule(
@@ -129,6 +129,14 @@ public class ChatBotService {
 
 		conversation.setSupportStatus(SupportStatus.NEEDS_HUMAN_SUPPORT);
 		conversation.setUrgency(SupportUrgency.MEDIUM);
+		if (conversation.getConversationType() == ConversationType.CATALOG_INQUIRY
+				|| conversation.isBotSession()) {
+			ConversationType humanType = user.getRole() == Role.PROVIDER
+					? ConversationType.PROVIDER_TO_SUPPORT
+					: ConversationType.CLIENT_TO_SUPPORT;
+			conversation.setConversationType(humanType);
+			conversation.setSubject("Escalado desde " + BOT_SUBJECT);
+		}
 		conversation = conversationRepository.save(conversation);
 
 		String escalationReply =
@@ -165,19 +173,22 @@ public class ChatBotService {
 		validateStaff(staff);
 		Conversation conversation = conversationRepository.findById(conversationId)
 				.orElseThrow(() -> new IllegalArgumentException("El ticket de soporte no existe."));
-		if (conversation.getConversationType() != ConversationType.CLIENT_TO_SUPPORT
-				&& conversation.getConversationType() != ConversationType.PROVIDER_TO_SUPPORT) {
+		if (!conversation.getConversationType().isHumanSupport()) {
 			throw new IllegalArgumentException("La conversación indicada no es un ticket de soporte.");
 		}
 		if (conversation.getSupportStatus() == SupportStatus.CLOSED) {
 			throw new IllegalArgumentException("El ticket de soporte está cerrado.");
 		}
 
+		if (conversation.getAssignedAdvisor() == null) {
+			conversation.setAssignedAdvisor(staff);
+		}
 		if (conversation.getSupportStatus() == SupportStatus.OPEN
+				|| conversation.getSupportStatus() == SupportStatus.UNASSIGNED
 				|| conversation.getSupportStatus() == SupportStatus.NEEDS_HUMAN_SUPPORT) {
 			conversation.setSupportStatus(SupportStatus.IN_PROGRESS);
-			conversationRepository.save(conversation);
 		}
+		conversationRepository.save(conversation);
 
 		Message message = appendMessage(conversation, staff, request.content().trim());
 		return MessageResponse.from(message, staff.getId());
@@ -190,32 +201,33 @@ public class ChatBotService {
 			if (!existing.getUser().getId().equals(user.getId())) {
 				throw new IllegalArgumentException("No tienes acceso a esta sesión de chat.");
 			}
-			if (existing.getConversationType() != ConversationType.CLIENT_TO_SUPPORT
-					&& existing.getConversationType() != ConversationType.PROVIDER_TO_SUPPORT) {
+			if (!existing.isBotSession()
+					&& existing.getConversationType() != ConversationType.CATALOG_INQUIRY) {
 				throw new IllegalArgumentException("La conversación indicada no es una sesión del asistente.");
+			}
+			if (existing.getConversationType() != ConversationType.CATALOG_INQUIRY) {
+				existing.setConversationType(ConversationType.CATALOG_INQUIRY);
+				existing.setSubject(BOT_SUBJECT);
+				return conversationRepository.save(existing);
 			}
 			return existing;
 		}
 
-		ConversationType type = user.getRole() == Role.PROVIDER
-				? ConversationType.PROVIDER_TO_SUPPORT
-				: ConversationType.CLIENT_TO_SUPPORT;
-
 		Optional<Conversation> openSession = conversationRepository
 				.findFirstByUserIdAndConversationTypeAndSubjectAndSupportStatusNotInOrderByLastMessageAtDesc(
 						user.getId(),
-						type,
+						ConversationType.CATALOG_INQUIRY,
 						BOT_SUBJECT,
 						List.of(SupportStatus.CLOSED, SupportStatus.RESOLVED));
 
-		return openSession.orElseGet(() -> createBotSession(user, type));
+		return openSession.orElseGet(() -> createBotSession(user));
 	}
 
-	private Conversation createBotSession(AppUser user, ConversationType type) {
+	private Conversation createBotSession(AppUser user) {
 		Conversation conversation = new Conversation();
 		conversation.setUser(user);
 		conversation.setProvider(null);
-		conversation.setConversationType(type);
+		conversation.setConversationType(ConversationType.CATALOG_INQUIRY);
 		conversation.setSupportStatus(SupportStatus.OPEN);
 		conversation.setUrgency(SupportUrgency.LOW);
 		conversation.setSubject(BOT_SUBJECT);

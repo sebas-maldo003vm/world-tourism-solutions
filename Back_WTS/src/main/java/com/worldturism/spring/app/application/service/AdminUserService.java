@@ -31,9 +31,14 @@ public class AdminUserService {
 		AppUser user = userRepository.findById(userId)
 				.orElseThrow(() -> new IllegalArgumentException("No existe un usuario con ese id."));
 
+		// SUPPORT no puede cambiar roles (solo ADMIN).
+		if (admin.getRole() == Role.SUPPORT && request.role() != null) {
+			throw new IllegalArgumentException("El rol SUPPORT no puede modificar roles de usuario.");
+		}
+
 		if (admin.getId().equals(userId)) {
-			if (request.role() != null && request.role() != Role.ADMIN) {
-				throw new IllegalArgumentException("No puedes cambiar tu propio rol de administrador.");
+			if (request.role() != null && request.role() != admin.getRole()) {
+				throw new IllegalArgumentException("No puedes cambiar tu propio rol.");
 			}
 			if (request.isActive() != null && !request.isActive()) {
 				throw new IllegalArgumentException("No puedes desactivar tu propia cuenta.");

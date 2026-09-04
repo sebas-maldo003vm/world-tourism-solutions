@@ -14,13 +14,21 @@ public record SupportTicketResponse(
 		String message,
 		Instant createdAt,
 		SupportStatus status,
-		ConversationType conversationType) {
+		ConversationType conversationType,
+		Long assignedAdvisorId,
+		String assignedAdvisorName) {
 
 	public static SupportTicketResponse from(Conversation conversation) {
 		String latestMessage = conversation.getMessages().isEmpty()
 				? ""
 				: conversation.getMessages().get(conversation.getMessages().size() - 1).getContent();
 		String subject = conversation.getSubject() != null ? conversation.getSubject() : "General";
+		Long advisorId = conversation.getAssignedAdvisor() != null
+				? conversation.getAssignedAdvisor().getId()
+				: null;
+		String advisorName = conversation.getAssignedAdvisor() != null
+				? conversation.getAssignedAdvisor().getName()
+				: null;
 		return new SupportTicketResponse(
 				conversation.getId(),
 				conversation.getUser().getName(),
@@ -28,7 +36,9 @@ public record SupportTicketResponse(
 				conversation.getUrgency() != null ? conversation.getUrgency() : SupportUrgency.MEDIUM,
 				latestMessage,
 				conversation.getCreatedAt(),
-				conversation.getSupportStatus() != null ? conversation.getSupportStatus() : SupportStatus.OPEN,
-				conversation.getConversationType());
+				conversation.getSupportStatus() != null ? conversation.getSupportStatus() : SupportStatus.UNASSIGNED,
+				conversation.getConversationType(),
+				advisorId,
+				advisorName);
 	}
 }

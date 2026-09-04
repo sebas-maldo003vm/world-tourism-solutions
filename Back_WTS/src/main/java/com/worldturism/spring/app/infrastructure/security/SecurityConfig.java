@@ -18,6 +18,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -38,13 +40,48 @@ public class SecurityConfig {
 				.cors(Customizer.withDefaults())
 				.csrf(csrf -> csrf.disable())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+				.exceptionHandling(ex -> ex
+						.authenticationEntryPoint((request, response, authException) -> {
+							response.setStatus(HttpStatus.UNAUTHORIZED.value());
+							response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+							response.getWriter().write(
+									"{\"status\":401,\"error\":\"Unauthorized\",\"message\":\"No autenticado. Se requiere JWT.\"}");
+						})
+						.accessDeniedHandler((request, response, accessDeniedException) -> {
+							response.setStatus(HttpStatus.FORBIDDEN.value());
+							response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+							response.getWriter().write(
+									"{\"status\":403,\"error\":\"Forbidden\",\"message\":\"No tienes permiso para este recurso.\"}");
+						}))
 				.authorizeHttpRequests(auth -> auth
+						.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 						.requestMatchers("/api/auth/register", "/api/auth/login").permitAll()
 						.requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
 						.requestMatchers("/uploads/**").permitAll()
-						.requestMatchers(HttpMethod.GET, "/api/services/**", "/api/businesses/**", "/api/businesses").permitAll()
+						.requestMatchers(HttpMethod.GET, "/api/businesses/**", "/api/businesses").permitAll()
+						// Asistente virtual: requiere JWT de turista (USER) o proveedor (PROVIDER)
+						.requestMatchers(HttpMethod.POST, "/api/chat/message").hasAnyRole("USER", "PROVIDER")
+						// Soporte humano: apertura por clientes; inbox/asignación solo staff
+						.requestMatchers(HttpMethod.POST, "/api/support/conversations/open")
+								.hasAnyRole("USER", "PROVIDER")
+						.requestMatchers(HttpMethod.PUT, "/api/support/conversations/*/assign")
+								.hasAnyRole("ADMIN", "SUPPORT")
+						.requestMatchers(HttpMethod.GET, "/api/support/conversations/inbox")
+								.hasAnyRole("ADMIN", "SUPPORT")
+						.requestMatchers("/api/support/**").hasAnyRole("ADMIN", "SUPPORT", "USER", "PROVIDER")
+						// Eliminación física y operaciones críticas — solo ADMIN
+						.requestMatchers(HttpMethod.DELETE, "/api/admin/**").hasRole("ADMIN")
+						// Visualización global del panel — ADMIN y SUPPORT
+						.requestMatchers(HttpMethod.GET, "/api/admin/**").hasAnyRole("ADMIN", "SUPPORT")
+						// Cambios de estado de negocios — ADMIN y SUPPORT
+						.requestMatchers(HttpMethod.PATCH, "/api/admin/businesses/*/status").hasAnyRole("ADMIN", "SUPPORT")
+						// Actualización de usuario (cambio de rol bloqueado en servicio para SUPPORT)
+						.requestMatchers(HttpMethod.PUT, "/api/admin/users/**").hasAnyRole("ADMIN", "SUPPORT")
+						// Resto de rutas admin — solo ADMIN
 						.requestMatchers("/api/admin/**").hasRole("ADMIN")
 						.requestMatchers("/api/provider/**").hasAnyRole("PROVIDER", "ADMIN")
+						// Favoritos: solo turista autenticado; aislamiento por userId en FavoriteService
+						.requestMatchers("/api/favorites", "/api/favorites/**").hasRole("USER")
 						.anyRequest().authenticated())
 				.authenticationProvider(authenticationProvider)
 				.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

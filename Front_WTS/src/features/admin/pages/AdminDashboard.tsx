@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import { Button } from '@/shared/components/ui/button';
 import { Card, CardContent } from '@/shared/components/ui/card';
 import { Input } from '@/shared/components/ui/input';
@@ -33,28 +34,49 @@ import {
 } from '@/shared/components/ui/alert-dialog';
 import {
   adminApi,
+  type AdminBusiness,
+  type AdminServiceRow,
   type AdminStats,
-  type AdminTourService,
   type AdminUser,
   type ServiceStatus,
   type UserRole,
 } from '@/features/admin/services/adminApi';
 import { chatApi, type SupportTicket, type SupportStatus } from '@/features/chat/services/chatApi';
 import { API_ORIGIN } from '@/core/api/client';
-import { Search, Trash2, Loader2, AlertCircle } from 'lucide-react';
+import { Search, Trash2, Loader2, AlertCircle, CheckCircle2, Ban } from 'lucide-react';
 
 const ROLE_LABELS: Record<UserRole, string> = {
   USER: 'Usuario',
   PROVIDER: 'Asesor',
   ADMIN: 'Admin',
+  SUPPORT: 'Soporte',
+  BOT: 'Bot',
 };
 
+/** Labels UI: APPROVED=activo, INACTIVE=inactivo, REJECTED=suspendido. */
 const STATUS_LABELS: Record<ServiceStatus, string> = {
   PENDING: 'Pendiente',
-  APPROVED: 'Aprobado',
-  REJECTED: 'Rechazado',
+  APPROVED: 'Activo',
+  REJECTED: 'Suspendido',
   INACTIVE: 'Inactivo',
 };
+
+function mapBusinessToServiceRow(business: AdminBusiness): AdminServiceRow {
+  return {
+    id: business.id,
+    title: business.businessName,
+    description: business.description ?? '',
+    category: business.category ?? 'N/A',
+    price: Number(business.price) || 0,
+    location: business.city ?? business.address,
+    imageUrl: business.imageUrls?.[0] ?? business.logoUrl,
+    avgRating: business.avgRating ?? 0,
+    totalReviews: business.totalReviews ?? 0,
+    status: business.status,
+    createdAt: new Date().toISOString(),
+    providerBusinessName: business.providerName,
+  };
+}
 
 function resolveImageUrl(image?: string) {
   if (!image) return 'https://placehold.co/96x96?text=Sin+imagen';
@@ -89,37 +111,81 @@ export function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [services, setServices] = useState<AdminTourService[]>([]);
+  const [services, setServices] = useState<AdminServiceRow[]>([]);
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [activeTickets, setActiveTickets] = useState<SupportTicket[]>([]);
+  const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({});
+  const knownActiveIdsRef = useRef<number[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<
     { type: 'user' | 'service'; id: number; label: string } | null
   >(null);
+  const [isSupportOnly, setIsSupportOnly] = useState(false);
+  const canManageCritical = !isSupportOnly;
+
+  const loadActiveTickets = useCallback(async (notifyNew = false) => {
+    try {
+      const { data } = await chatApi.listActiveTickets();
+      setActiveTickets(data);
+      if (notifyNew) {
+        const newcomers = data.filter((ticket) => !knownActiveIdsRef.current.includes(ticket.id));
+        newcomers.forEach((ticket) => {
+          toast.info('Nuevo ticket que requiere soporte humano', {
+            description: `${ticket.userName}: ${ticket.message.slice(0, 100)}`,
+          });
+        });
+      }
+      knownActiveIdsRef.current = data.map((ticket) => ticket.id);
+    } catch {
+      // El panel sigue operativo con el listado general de soporte
+    }
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    try {
-      const [statsRes, usersRes, servicesRes, supportRes] = await Promise.all([
+    const [statsResult, usersResult, businessesResult, supportResult] =
+      await Promise.allSettled([
         adminApi.getStats(),
         adminApi.listUsers(),
-        adminApi.listServices(),
+        adminApi.listBusinesses(),
         chatApi.listSupportTickets(),
       ]);
 
-      setStats(statsRes.data);
-      setUsers(usersRes.data);
-      setServices(servicesRes.data);
-      setSupportTickets(supportRes.data);
-    } catch {
-      setError('No se pudieron cargar los datos del panel de administración.');
-    } finally {
-      setLoading(false);
+    if (statsResult.status === 'fulfilled') {
+      setStats(statsResult.value.data);
     }
-  }, []);
+
+    if (usersResult.status === 'fulfilled') {
+      setUsers(usersResult.value.data);
+    }
+
+    if (businessesResult.status === 'fulfilled') {
+      setServices(businessesResult.value.data.map(mapBusinessToServiceRow));
+    } else {
+      setError('No se pudieron cargar los negocios.');
+      toast.error('No se pudieron cargar los negocios.');
+    }
+
+    if (supportResult.status === 'fulfilled') {
+      setSupportTickets(supportResult.value.data);
+    }
+
+    await loadActiveTickets(false);
+
+    if (
+      statsResult.status === 'rejected' &&
+      usersResult.status === 'rejected' &&
+      businessesResult.status === 'rejected'
+    ) {
+      setError('No se pudieron cargar los datos del panel de administración.');
+      toast.error('No se pudieron cargar los datos del panel de administración.');
+    }
+
+    setLoading(false);
+  }, [loadActiveTickets]);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
@@ -131,13 +197,21 @@ export function AdminDashboard() {
     }
 
     const parsedUser = JSON.parse(storedUser) as { role?: string };
-    if (parsedUser.role !== 'ADMIN') {
-      navigate('/', { replace: true });
+    if (parsedUser.role !== 'ADMIN' && parsedUser.role !== 'SUPPORT') {
+      navigate('/home-logueado', { replace: true });
       return;
     }
 
+    setIsSupportOnly(parsedUser.role === 'SUPPORT');
     loadData();
   }, [loadData, navigate]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadActiveTickets(true);
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [loadActiveTickets]);
 
   const filteredServices = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -169,9 +243,16 @@ export function AdminDashboard() {
     try {
       const { data } = await chatApi.updateSupportStatus(ticketId, status);
       setSupportTickets((prev) => prev.map((t) => (t.id === ticketId ? data : t)));
-      showFeedback('Estado del ticket actualizado.');
+      setActiveTickets((prev) =>
+        status === 'NEEDS_HUMAN_SUPPORT'
+          ? prev.some((t) => t.id === ticketId)
+            ? prev.map((t) => (t.id === ticketId ? data : t))
+            : [...prev, data]
+          : prev.filter((t) => t.id !== ticketId),
+      );
+      toast.success('Estado del ticket actualizado.');
     } catch {
-      showFeedback('No se pudo actualizar el ticket de soporte.', true);
+      toast.error('No se pudo actualizar el ticket de soporte.');
     } finally {
       setActionLoading(null);
     }
@@ -181,13 +262,24 @@ export function AdminDashboard() {
     navigate(`/chat?conversation=${ticketId}`);
   };
 
-  const showFeedback = (message: string, isError = false) => {
-    if (isError) {
-      setSuccess(null);
-      setError(message);
-    } else {
-      setError(null);
-      setSuccess(message);
+  const handleReplyActiveTicket = async (ticketId: number) => {
+    const content = (replyDrafts[ticketId] || '').trim();
+    if (!content) return;
+    setActionLoading(ticketId);
+    try {
+      await chatApi.replyActiveTicket(ticketId, content);
+      setReplyDrafts((prev) => ({ ...prev, [ticketId]: '' }));
+      setActiveTickets((prev) => prev.filter((t) => t.id !== ticketId));
+      setSupportTickets((prev) =>
+        prev.map((t) =>
+          t.id === ticketId ? { ...t, status: 'IN_PROGRESS' as SupportStatus } : t,
+        ),
+      );
+      toast.success('Respuesta enviada al usuario.');
+    } catch {
+      toast.error('No se pudo responder el ticket.');
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -196,9 +288,9 @@ export function AdminDashboard() {
     try {
       const { data } = await adminApi.updateUser(userId, { role });
       setUsers((prev) => prev.map((user) => (user.id === userId ? data : user)));
-      showFeedback('Rol actualizado correctamente.');
+      toast.success('Rol actualizado correctamente.');
     } catch {
-      showFeedback('No se pudo actualizar el rol del usuario.', true);
+      toast.error('No se pudo actualizar el rol del usuario.');
     } finally {
       setActionLoading(null);
     }
@@ -209,22 +301,38 @@ export function AdminDashboard() {
     try {
       const { data } = await adminApi.updateUser(user.id, { isActive: !user.isActive });
       setUsers((prev) => prev.map((item) => (item.id === user.id ? data : item)));
-      showFeedback(data.isActive ? 'Usuario activado.' : 'Usuario desactivado.');
+      toast.success(data.isActive ? 'Usuario activado.' : 'Usuario desactivado.');
     } catch {
-      showFeedback('No se pudo cambiar el estado del usuario.', true);
+      toast.error('No se pudo cambiar el estado del usuario.');
     } finally {
       setActionLoading(null);
     }
   };
 
+  const refreshPendingBusinesses = (previous: ServiceStatus, next: ServiceStatus) => {
+    if (!stats) return;
+    let pendingBusinesses = stats.pendingBusinesses;
+    if (previous === 'PENDING' && next !== 'PENDING') pendingBusinesses -= 1;
+    if (previous !== 'PENDING' && next === 'PENDING') pendingBusinesses += 1;
+    setStats({ ...stats, pendingBusinesses: Math.max(0, pendingBusinesses) });
+  };
+
   const handleServiceStatusChange = async (serviceId: number, status: ServiceStatus) => {
+    const current = services.find((service) => service.id === serviceId);
+    if (!current) return;
+
     setActionLoading(serviceId);
     try {
-      const { data } = await adminApi.updateServiceStatus(serviceId, { status });
-      setServices((prev) => prev.map((service) => (service.id === serviceId ? data : service)));
-      showFeedback('Estado del servicio actualizado.');
+      const { data } = await adminApi.updateBusinessStatus(serviceId, { status });
+      setServices((prev) =>
+        prev.map((service) =>
+          service.id === serviceId ? mapBusinessToServiceRow(data) : service
+        )
+      );
+      refreshPendingBusinesses(current.status, data.status);
+      toast.success(`Estado del negocio actualizado a ${STATUS_LABELS[data.status]}.`);
     } catch {
-      showFeedback('No se pudo actualizar el estado del servicio.', true);
+      toast.error('No se pudo actualizar el estado del negocio.');
     } finally {
       setActionLoading(null);
     }
@@ -239,20 +347,29 @@ export function AdminDashboard() {
         await adminApi.deleteUser(deleteTarget.id);
         setUsers((prev) => prev.filter((user) => user.id !== deleteTarget.id));
         if (stats) {
-          setStats({ ...stats, totalUsers: stats.totalUsers - 1 });
+          setStats({ ...stats, totalUsers: Math.max(0, stats.totalUsers - 1) });
         }
+        toast.success('Usuario eliminado correctamente.');
       } else {
-        await adminApi.deleteService(deleteTarget.id);
+        const removed = services.find((service) => service.id === deleteTarget.id);
+        await adminApi.deleteBusiness(deleteTarget.id);
         setServices((prev) => prev.filter((service) => service.id !== deleteTarget.id));
         if (stats) {
-          setStats({ ...stats, totalServices: stats.totalServices - 1 });
+          setStats({
+            ...stats,
+            totalBusinesses: Math.max(0, stats.totalBusinesses - 1),
+            pendingBusinesses:
+              removed?.status === 'PENDING'
+                ? Math.max(0, stats.pendingBusinesses - 1)
+                : stats.pendingBusinesses,
+          });
         }
+        toast.success('Negocio eliminado correctamente.');
       }
 
-      showFeedback('Registro eliminado correctamente.');
       setDeleteTarget(null);
     } catch {
-      showFeedback('No se pudo eliminar el registro.', true);
+      toast.error('No se pudo eliminar el registro.');
     } finally {
       setActionLoading(null);
     }
@@ -273,8 +390,14 @@ export function AdminDashboard() {
     <div className="min-h-screen bg-gray-50 py-6">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold mb-2">Panel de Administración</h1>
-          <p className="text-gray-600">Gestiona servicios, usuarios y soporte</p>
+          <h1 className="text-3xl font-bold mb-2">
+            {isSupportOnly ? 'Panel de Soporte' : 'Panel de Administración'}
+          </h1>
+          <p className="text-gray-600">
+            {isSupportOnly
+              ? 'Consulta servicios y usuarios, gestiona estados y atiende tickets'
+              : 'Gestiona servicios, usuarios y soporte'}
+          </p>
         </div>
 
         {error && (
@@ -284,24 +407,18 @@ export function AdminDashboard() {
           </Alert>
         )}
 
-        {success && (
-          <Alert className="mb-4 border-green-200 bg-green-50 text-green-800">
-            <AlertDescription>{success}</AlertDescription>
-          </Alert>
-        )}
-
         <div className="grid md:grid-cols-3 gap-6 mb-6">
           <Card>
             <CardContent className="p-6">
-              <p className="text-sm text-gray-600">Total Servicios</p>
-              <p className="text-3xl font-bold">{stats?.totalServices ?? 0}</p>
+              <p className="text-sm text-gray-600">Total Negocios</p>
+              <p className="text-3xl font-bold">{stats?.totalBusinesses ?? 0}</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardContent className="p-6">
-              <p className="text-sm text-gray-600">Servicios Pendientes</p>
-              <p className="text-3xl font-bold">{stats?.pendingServices ?? 0}</p>
+              <p className="text-sm text-gray-600">Negocios Pendientes</p>
+              <p className="text-3xl font-bold">{stats?.pendingBusinesses ?? 0}</p>
             </CardContent>
           </Card>
 
@@ -319,7 +436,14 @@ export function AdminDashboard() {
               <div className="flex items-center justify-between">
                 <TabsList>
                   <TabsTrigger value="content">Gestión de Servicios</TabsTrigger>
-                  <TabsTrigger value="support">Soporte</TabsTrigger>
+                  <TabsTrigger value="support">
+                    Tickets de Soporte
+                    {activeTickets.length > 0 && (
+                      <span className="ml-2 rounded-full bg-red-500 px-2 py-0.5 text-[10px] text-white">
+                        {activeTickets.length}
+                      </span>
+                    )}
+                  </TabsTrigger>
                   <TabsTrigger value="users">Gestión de Usuarios</TabsTrigger>
                 </TabsList>
 
@@ -390,39 +514,66 @@ export function AdminDashboard() {
 
                             <TableCell>
                               <div className="flex justify-end items-center gap-2">
-                                <Select
-                                  value={service.status}
-                                  onValueChange={(value) =>
-                                    handleServiceStatusChange(service.id, value as ServiceStatus)
-                                  }
-                                  disabled={actionLoading === service.id}
-                                >
-                                  <SelectTrigger className="w-36">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="PENDING">Pendiente</SelectItem>
-                                    <SelectItem value="APPROVED">Aprobado</SelectItem>
-                                    <SelectItem value="REJECTED">Rechazado</SelectItem>
-                                    <SelectItem value="INACTIVE">Inactivo</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                {service.status !== 'APPROVED' && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-green-700 border-green-200 hover:bg-green-50"
+                                    disabled={actionLoading === service.id}
+                                    onClick={() =>
+                                      handleServiceStatusChange(service.id, 'APPROVED')
+                                    }
+                                  >
+                                    <CheckCircle2 className="h-4 w-4 mr-1" />
+                                    Aprobar
+                                  </Button>
+                                )}
 
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="text-red-600"
-                                  disabled={actionLoading === service.id}
-                                  onClick={() =>
-                                    setDeleteTarget({
-                                      type: 'service',
-                                      id: service.id,
-                                      label: service.title,
-                                    })
-                                  }
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
+                                {service.status !== 'INACTIVE' && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={actionLoading === service.id}
+                                    onClick={() =>
+                                      handleServiceStatusChange(service.id, 'INACTIVE')
+                                    }
+                                  >
+                                    <Ban className="h-4 w-4 mr-1" />
+                                    Desactivar
+                                  </Button>
+                                )}
+
+                                {service.status !== 'REJECTED' && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-amber-700 border-amber-200 hover:bg-amber-50"
+                                    disabled={actionLoading === service.id}
+                                    onClick={() =>
+                                      handleServiceStatusChange(service.id, 'REJECTED')
+                                    }
+                                  >
+                                    Suspender
+                                  </Button>
+                                )}
+
+                                {canManageCritical && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="text-red-600"
+                                    disabled={actionLoading === service.id}
+                                    onClick={() =>
+                                      setDeleteTarget({
+                                        type: 'service',
+                                        id: service.id,
+                                        label: service.title,
+                                      })
+                                    }
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -433,90 +584,179 @@ export function AdminDashboard() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="support" className="space-y-4">
-                <h3 className="text-lg font-semibold">Soporte</h3>
-
-                <div className="border rounded-lg overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>ID</TableHead>
-                        <TableHead>Usuario</TableHead>
-                        <TableHead>Servicio</TableHead>
-                        <TableHead>Urgencia</TableHead>
-                        <TableHead>Fecha</TableHead>
-                        <TableHead className="text-right">Acciones</TableHead>
-                      </TableRow>
-                    </TableHeader>
-
-                    <TableBody>
-                      {supportTickets.length === 0 ? (
+              <TabsContent value="support" className="space-y-6">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">Requieren intervención humana</h3>
+                    <Badge variant="destructive">{activeTickets.length} activos</Badge>
+                  </div>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center text-gray-500 py-8">
-                            No hay tickets de soporte registrados.
-                          </TableCell>
+                          <TableHead>ID</TableHead>
+                          <TableHead>Usuario</TableHead>
+                          <TableHead>Asunto</TableHead>
+                          <TableHead>Último mensaje</TableHead>
+                          <TableHead>Responder</TableHead>
                         </TableRow>
-                      ) : (
-                        supportTickets.map((ticket) => (
-                          <TableRow key={ticket.id}>
-                            <TableCell>#{ticket.id}</TableCell>
-                            <TableCell>{ticket.userName}</TableCell>
-                            <TableCell>{ticket.serviceName}</TableCell>
-
-                            <TableCell>
-                              <Badge
-                                variant={
-                                  ticket.urgency === 'HIGH'
-                                    ? 'destructive'
-                                    : ticket.urgency === 'MEDIUM'
-                                      ? 'secondary'
-                                      : 'default'
-                                }
-                              >
-                                {ticket.urgency === 'HIGH'
-                                  ? 'Alta'
-                                  : ticket.urgency === 'MEDIUM'
-                                    ? 'Media'
-                                    : 'Baja'}
-                              </Badge>
-                            </TableCell>
-
-                            <TableCell>{formatDate(ticket.createdAt)}</TableCell>
-
-                            <TableCell>
-                              <div className="flex justify-end gap-2">
-                                <Select
-                                  value={ticket.status}
-                                  onValueChange={(value) =>
-                                    handleSupportStatusChange(ticket.id, value as SupportStatus)
-                                  }
-                                  disabled={actionLoading === ticket.id}
-                                >
-                                  <SelectTrigger className="w-36">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="OPEN">Abierto</SelectItem>
-                                    <SelectItem value="IN_PROGRESS">En progreso</SelectItem>
-                                    <SelectItem value="RESOLVED">Resuelto</SelectItem>
-                                    <SelectItem value="CLOSED">Cerrado</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="bg-blue-600 hover:bg-blue-700 rounded-full text-white"
-                                  onClick={() => handleContactSupport(ticket.id)}
-                                >
-                                  Contactar
-                                </Button>
-                              </div>
+                      </TableHeader>
+                      <TableBody>
+                        {activeTickets.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={5} className="text-center text-gray-500 py-8">
+                              No hay conversaciones escaladas por el chatbot.
                             </TableCell>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
+                        ) : (
+                          activeTickets.map((ticket) => (
+                            <TableRow key={`active-${ticket.id}`}>
+                              <TableCell>#{ticket.id}</TableCell>
+                              <TableCell>{ticket.userName}</TableCell>
+                              <TableCell>{ticket.subject}</TableCell>
+                              <TableCell className="max-w-xs truncate">{ticket.message}</TableCell>
+                              <TableCell>
+                                <div className="flex min-w-[260px] gap-2">
+                                  <Input
+                                    placeholder="Respuesta al usuario..."
+                                    value={replyDrafts[ticket.id] || ''}
+                                    onChange={(e) =>
+                                      setReplyDrafts((prev) => ({
+                                        ...prev,
+                                        [ticket.id]: e.target.value,
+                                      }))
+                                    }
+                                  />
+                                  <Button
+                                    size="sm"
+                                    className="bg-blue-600 hover:bg-blue-700"
+                                    disabled={
+                                      actionLoading === ticket.id ||
+                                      !(replyDrafts[ticket.id] || '').trim()
+                                    }
+                                    onClick={() => handleReplyActiveTicket(ticket.id)}
+                                  >
+                                    Enviar
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleContactSupport(ticket.id)}
+                                  >
+                                    Abrir
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h3 className="text-lg font-semibold">Todos los tickets</h3>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>ID</TableHead>
+                          <TableHead>Usuario</TableHead>
+                          <TableHead>Servicio</TableHead>
+                          <TableHead>Urgencia</TableHead>
+                          <TableHead>Estado</TableHead>
+                          <TableHead>Fecha</TableHead>
+                          <TableHead className="text-right">Acciones</TableHead>
+                        </TableRow>
+                      </TableHeader>
+
+                      <TableBody>
+                        {supportTickets.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center text-gray-500 py-8">
+                              No hay tickets de soporte registrados.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          supportTickets.map((ticket) => (
+                            <TableRow key={ticket.id}>
+                              <TableCell>#{ticket.id}</TableCell>
+                              <TableCell>{ticket.userName}</TableCell>
+                              <TableCell>{ticket.subject}</TableCell>
+
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    ticket.urgency === 'HIGH'
+                                      ? 'destructive'
+                                      : ticket.urgency === 'MEDIUM'
+                                        ? 'secondary'
+                                        : 'default'
+                                  }
+                                >
+                                  {ticket.urgency === 'HIGH'
+                                    ? 'Alta'
+                                    : ticket.urgency === 'MEDIUM'
+                                      ? 'Media'
+                                      : 'Baja'}
+                                </Badge>
+                              </TableCell>
+
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    ticket.status === 'NEEDS_HUMAN_SUPPORT'
+                                      ? 'destructive'
+                                      : 'outline'
+                                  }
+                                >
+                                  {ticket.status === 'NEEDS_HUMAN_SUPPORT'
+                                    ? 'Necesita humano'
+                                    : ticket.status}
+                                </Badge>
+                              </TableCell>
+
+                              <TableCell>{formatDate(ticket.createdAt)}</TableCell>
+
+                              <TableCell>
+                                <div className="flex justify-end gap-2">
+                                  <Select
+                                    value={ticket.status}
+                                    onValueChange={(value) =>
+                                      handleSupportStatusChange(ticket.id, value as SupportStatus)
+                                    }
+                                    disabled={actionLoading === ticket.id}
+                                  >
+                                    <SelectTrigger className="w-44">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="OPEN">Abierto</SelectItem>
+                                      <SelectItem value="IN_PROGRESS">En progreso</SelectItem>
+                                      <SelectItem value="NEEDS_HUMAN_SUPPORT">
+                                        Necesita humano
+                                      </SelectItem>
+                                      <SelectItem value="RESOLVED">Resuelto</SelectItem>
+                                      <SelectItem value="CLOSED">Cerrado</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="bg-blue-600 hover:bg-blue-700 rounded-full text-white"
+                                    onClick={() => handleContactSupport(ticket.id)}
+                                  >
+                                    Contactar
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               </TabsContent>
 
@@ -550,22 +790,27 @@ export function AdminDashboard() {
                             <TableCell className="font-medium">{user.name}</TableCell>
                             <TableCell>{user.email}</TableCell>
                             <TableCell>
-                              <Select
-                                value={user.role}
-                                onValueChange={(value) =>
-                                  handleUserRoleChange(user.id, value as UserRole)
-                                }
-                                disabled={actionLoading === user.id}
-                              >
-                                <SelectTrigger className="w-32">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="USER">Usuario</SelectItem>
-                                  <SelectItem value="PROVIDER">Asesor</SelectItem>
-                                  <SelectItem value="ADMIN">Admin</SelectItem>
-                                </SelectContent>
-                              </Select>
+                              {canManageCritical ? (
+                                <Select
+                                  value={user.role}
+                                  onValueChange={(value) =>
+                                    handleUserRoleChange(user.id, value as UserRole)
+                                  }
+                                  disabled={actionLoading === user.id}
+                                >
+                                  <SelectTrigger className="w-32">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="USER">Usuario</SelectItem>
+                                    <SelectItem value="PROVIDER">Asesor</SelectItem>
+                                    <SelectItem value="ADMIN">Admin</SelectItem>
+                                    <SelectItem value="SUPPORT">Soporte</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Badge variant="outline">{ROLE_LABELS[user.role]}</Badge>
+                              )}
                             </TableCell>
                             <TableCell>{formatDate(user.createdAt)}</TableCell>
                             <TableCell>
@@ -583,21 +828,23 @@ export function AdminDashboard() {
                                 >
                                   {user.isActive ? 'Desactivar' : 'Activar'}
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="text-red-600 hover:text-red-700"
-                                  disabled={actionLoading === user.id}
-                                  onClick={() =>
-                                    setDeleteTarget({
-                                      type: 'user',
-                                      id: user.id,
-                                      label: user.name,
-                                    })
-                                  }
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
+                                {canManageCritical && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="text-red-600 hover:text-red-700"
+                                    disabled={actionLoading === user.id}
+                                    onClick={() =>
+                                      setDeleteTarget({
+                                        type: 'user',
+                                        id: user.id,
+                                        label: user.name,
+                                      })
+                                    }
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>

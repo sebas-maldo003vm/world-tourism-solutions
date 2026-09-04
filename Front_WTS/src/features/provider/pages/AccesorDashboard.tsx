@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   CalendarDays,
   Check,
+  MessageCircle,
   Pencil,
   Plus,
   Trash2,
@@ -27,6 +28,7 @@ import {
 
 import { api } from '@/core/api/client';
 import { ImageCarousel } from '@/shared/components/catalog/ImageCarousel';
+import { contactClient } from '@/features/chat/utils/contactClient';
 
 interface Service {
   id: number;
@@ -58,9 +60,12 @@ interface ProviderBooking {
   totalPrice?: number;
   total?: number;
   status?: string;
+  userId?: number | string;
+  clientId?: number | string;
   userName?: string;
   userEmail?: string;
   user?: {
+    id?: number | string;
     name?: string;
     email?: string;
   };
@@ -129,6 +134,20 @@ const isPendingBooking = (booking: ProviderBooking) => (
   getBookingStatus(booking).toUpperCase() === 'PENDING'
 );
 
+const getBookingClientId = (booking: ProviderBooking): number | null => {
+  const raw = booking.userId ?? booking.clientId ?? booking.user?.id;
+  if (raw == null || raw === '') return null;
+  const id = Number(raw);
+  return Number.isFinite(id) ? id : null;
+};
+
+const getBookingBusinessId = (booking: ProviderBooking): number | null => {
+  const raw = booking.businessId ?? booking.serviceId;
+  if (raw == null || raw === '') return null;
+  const id = Number(raw);
+  return Number.isFinite(id) ? id : null;
+};
+
 const getStatusClassName = (status: string) => {
   const normalizedStatus = status.toUpperCase();
 
@@ -153,6 +172,8 @@ export function AccesorDashboard() {
   const [loading, setLoading] = useState(true);
   const [bookingsLoading, setBookingsLoading] = useState(true);
   const [updatingBookingId, setUpdatingBookingId] =
+    useState<number | string | null>(null);
+  const [contactingBookingId, setContactingBookingId] =
     useState<number | string | null>(null);
 
   useEffect(() => {
@@ -252,6 +273,24 @@ export function AccesorDashboard() {
       );
     } finally {
       setUpdatingBookingId(null);
+    }
+  };
+
+  const handleContactClient = async (booking: ProviderBooking) => {
+    const bookingId = getBookingId(booking);
+    const clientUserId = getBookingClientId(booking);
+    const providerProfileId = getBookingBusinessId(booking);
+
+    if (clientUserId == null) {
+      alert('No se puede contactar: la reserva no incluye el id del cliente.');
+      return;
+    }
+
+    try {
+      setContactingBookingId(bookingId);
+      await contactClient(navigate, clientUserId, providerProfileId);
+    } finally {
+      setContactingBookingId(null);
     }
   };
 
@@ -569,6 +608,19 @@ export function AccesorDashboard() {
 
                             <td className="p-3">
                               <div className="flex justify-end gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleContactClient(booking)}
+                                  disabled={contactingBookingId === bookingId}
+                                  className="gap-1"
+                                >
+                                  <MessageCircle className="h-4 w-4" />
+                                  {contactingBookingId === bookingId
+                                    ? 'Abriendo...'
+                                    : 'Contactar'}
+                                </Button>
+
                                 {isPendingBooking(booking) ? (
                                   <>
                                     <Button
@@ -595,11 +647,7 @@ export function AccesorDashboard() {
                                       Rechazar
                                     </Button>
                                   </>
-                                ) : (
-                                  <span className="text-sm text-gray-500">
-                                    Sin acciones
-                                  </span>
-                                )}
+                                ) : null}
                               </div>
                             </td>
                           </tr>

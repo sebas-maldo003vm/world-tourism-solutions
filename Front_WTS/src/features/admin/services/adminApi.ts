@@ -1,6 +1,6 @@
 import { api } from '@/core/api/client';
 
-export type UserRole = 'ADMIN' | 'SUPPORT' | 'USER' | 'PROVIDER';
+export type UserRole = 'ADMIN' | 'SUPPORT' | 'USER' | 'PROVIDER' | 'BOT';
 
 /** Estados de negocio (APPROVED≈activo, INACTIVE≈inactivo, REJECTED≈suspendido). */
 export type ServiceStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'INACTIVE';
@@ -16,6 +16,7 @@ export interface AdminUser {
   name: string;
   email: string;
   phoneNumber: string;
+  profilePictureUrl?: string | null;
   role: UserRole;
   isActive: boolean;
   createdAt: string;

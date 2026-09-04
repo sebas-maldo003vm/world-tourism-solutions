@@ -23,6 +23,8 @@ import java.util.List;
 @Table(name = "conversations")
 public class Conversation {
 
+	public static final String BOT_SUBJECT = "Asistente Virtual";
+
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
@@ -34,11 +36,11 @@ public class Conversation {
 	private Instant lastMessageAt;
 
 	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, length = 30)
+	@Column(name = "conversation_type", nullable = false, length = 30)
 	private ConversationType conversationType = ConversationType.CLIENT_TO_PROVIDER;
 
 	@Enumerated(EnumType.STRING)
-	@Column(length = 30)
+	@Column(name = "support_status", length = 30)
 	private SupportStatus supportStatus;
 
 	@Enumerated(EnumType.STRING)
@@ -47,6 +49,14 @@ public class Conversation {
 
 	@Column(length = 200)
 	private String subject;
+
+	/**
+	 * Asesor de soporte asignado ({@link Role#SUPPORT} o {@link Role#ADMIN}).
+	 * Null mientras el ticket permanece en cola ({@link SupportStatus#UNASSIGNED}).
+	 */
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "assigned_advisor_id", nullable = true)
+	private AppUser assignedAdvisor;
 
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "user_id", nullable = false)
@@ -69,6 +79,19 @@ public class Conversation {
 		if (lastMessageAt == null) {
 			lastMessageAt = now;
 		}
+	}
+
+	/**
+	 * Sesión del asistente virtual: sin columna dedicada en el esquema actual.
+	 * Se identifica por {@link ConversationType#CATALOG_INQUIRY} o por subject.
+	 */
+	public boolean isBotSession() {
+		if (conversationType == ConversationType.CATALOG_INQUIRY) {
+			return true;
+		}
+		return subject != null
+				&& (BOT_SUBJECT.equalsIgnoreCase(subject.trim())
+						|| subject.contains(BOT_SUBJECT));
 	}
 
 	public Long getId() {
@@ -125,6 +148,14 @@ public class Conversation {
 
 	public void setSubject(String subject) {
 		this.subject = subject;
+	}
+
+	public AppUser getAssignedAdvisor() {
+		return assignedAdvisor;
+	}
+
+	public void setAssignedAdvisor(AppUser assignedAdvisor) {
+		this.assignedAdvisor = assignedAdvisor;
 	}
 
 	public AppUser getUser() {

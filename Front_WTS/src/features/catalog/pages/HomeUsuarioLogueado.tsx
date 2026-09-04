@@ -218,7 +218,8 @@ export function HomeUsuarioLogueado() {
                     key={service.id}
                     service={{
                       id: service.id.toString(),
-                      providerId: service.providerId,
+                      // ProviderResponse.id = ProviderProfile.id (lo que exige startConversation)
+                      providerId: service.id,
                       name: getServiceName(service),
                       description:
                         service.description || '',

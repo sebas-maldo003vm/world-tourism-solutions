@@ -22,9 +22,15 @@ public record BookingResponse(
         String businessCity,
         String businessAddress,
         String businessCategory,
-        Long providerUserId) {
+        Long providerUserId,
+        /** AppUser.id del cliente que reservó (para contactar desde el panel del proveedor). */
+        Long userId,
+        String userName,
+        String userEmail) {
 
     public static BookingResponse from(Booking booking) {
+        var client = booking.getUser();
+        var business = booking.getProviderBusiness();
         return new BookingResponse(
                 booking.getId(),
                 booking.getBookingDate(),
@@ -34,12 +40,15 @@ public record BookingResponse(
                 booking.getTotalPrice(),
                 booking.getStatus(),
                 booking.getCreatedAt(),
-                booking.getProviderBusiness().getId(),
-                booking.getProviderBusiness().getBusinessName(),
-                booking.getProviderBusiness().getPrice(),
-                booking.getProviderBusiness().getCity(),
-                booking.getProviderBusiness().getAddress(),
-                booking.getProviderBusiness().getCategory(),
-                booking.getProviderBusiness().getUser().getId());
+                business.getId(),
+                business.getBusinessName(),
+                business.getPrice(),
+                business.getCity(),
+                business.getAddress(),
+                business.getCategory(),
+                business.getUser() != null ? business.getUser().getId() : null,
+                client != null ? client.getId() : null,
+                client != null ? client.getName() : null,
+                client != null ? client.getEmail() : null);
     }
 }

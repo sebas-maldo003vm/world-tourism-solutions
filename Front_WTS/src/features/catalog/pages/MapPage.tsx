@@ -6,11 +6,13 @@ import { Card, CardContent } from '@/shared/components/ui/card';
 import { Button } from '@/shared/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { X, UtensilsCrossed, Tent, Hotel, ArrowLeft } from 'lucide-react';
+import { contactProvider } from '@/features/chat/utils/contactProvider';
 
 export function MapPage() {
   const navigate = useNavigate();
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [contacting, setContacting] = useState(false);
 
   const filteredServices = selectedCategory
     ? mockServices.filter((s) => s.category === selectedCategory)
@@ -112,11 +114,20 @@ export function MapPage() {
                   Ver detalle
                 </Button>
                 <Button
-                  onClick={() => navigate('/chat')}
+                  onClick={async () => {
+                    if (!selectedService.providerId) {
+                      navigate('/chat');
+                      return;
+                    }
+                    setContacting(true);
+                    await contactProvider(navigate, selectedService.providerId);
+                    setContacting(false);
+                  }}
+                  disabled={contacting}
                   variant="outline"
                   className="flex-1 rounded-full"
                 >
-                  Contactar
+                  {contacting ? 'Abriendo chat...' : 'Contactar'}
                 </Button>
               </div>
             </CardContent>

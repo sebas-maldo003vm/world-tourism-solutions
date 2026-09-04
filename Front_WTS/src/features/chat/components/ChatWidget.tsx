@@ -1,15 +1,33 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { MessageSquare, Send, Bot, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { MessageSquare, Send, Bot, X, Headphones, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { isJwtValid } from '@/app/routes/ProtectedRoute';
-import { chatApi, type ChatMessage, type SupportStatus } from '@/features/chat/services/chatApi';
-
-const POLL_MS = 4000;
-const SESSION_KEY = 'wts_chatbot_session_id';
-
-type WidgetMessage = ChatMessage & { fromBot?: boolean };
+import { chatApi, type SupportUrgency } from '@/features/chat/services/chatApi';
+import {
+  useEphemeralChatbot,
+  type SuggestionChip,
+} from '@/features/chat/hooks/useEphemeralChatbot';
+import { Button } from '@/shared/components/ui/button';
+import { Input } from '@/shared/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/shared/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/shared/components/ui/select';
 
 function formatTime(value: string) {
+  if (value === new Date(0).toISOString()) return '';
   return new Date(value).toLocaleTimeString('es-CO', {
     hour: '2-digit',
     minute: '2-digit',
@@ -27,26 +45,65 @@ function readStoredUser(): { role?: string } | null {
 
 function canUseChatbot(): boolean {
   const token = localStorage.getItem('token');
-  if (!isJwtValid(token)) {
-    return false;
-  }
+  if (!isJwtValid(token)) return false;
   const role = readStoredUser()?.role;
   return role === 'USER' || role === 'PROVIDER';
 }
 
+function SuggestionChips({
+  chips,
+  onSelect,
+}: {
+  chips: SuggestionChip[];
+  onSelect: (chip: SuggestionChip) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5 px-1 pb-1">
+      {chips.map((chip) => (
+        <button
+          key={chip.id}
+          type="button"
+          onClick={() => onSelect(chip)}
+          className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+            chip.escalate
+              ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
+              : 'border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50'
+          }`}
+        >
+          {chip.escalate ? (
+            <span className="inline-flex items-center gap-1">
+              <Headphones className="h-3 w-3" />
+              {chip.label}
+            </span>
+          ) : (
+            chip.label
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function ChatWidget() {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const [conversationId, setConversationId] = useState<number | null>(() => {
-    const stored = localStorage.getItem(SESSION_KEY);
-    return stored ? Number(stored) : null;
-  });
-  const [sessionStatus, setSessionStatus] = useState<SupportStatus | null>(null);
-  const [messages, setMessages] = useState<WidgetMessage[]>([]);
   const [visible, setVisible] = useState(false);
-  const lastHumanMsgId = useRef<number | null>(null);
+  const [supportMessage, setSupportMessage] = useState('');
+  const [supportUrgency, setSupportUrgency] = useState<SupportUrgency>('MEDIUM');
+  const [creatingTicket, setCreatingTicket] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  const {
+    messages,
+    input,
+    setInput,
+    suggestions,
+    sendMessage,
+    selectSuggestion,
+    escalateOpen,
+    setEscalateOpen,
+    draftSupportMessage,
+  } = useEphemeralChatbot();
 
   useEffect(() => {
     const refreshVisibility = () => setVisible(canUseChatbot());
@@ -59,110 +116,51 @@ export function ChatWidget() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, open]);
 
-  const syncHistory = useCallback(async (id: number, notifyHuman = false) => {
-    if (!canUseChatbot()) {
-      return;
-    }
-
-    try {
-      const { data } = await chatApi.getMessages(id);
-      setMessages(
-        data.map((m) => ({
-          ...m,
-          fromBot:
-            !m.isOwn &&
-            (m.senderName === 'Asistente Virtual' ||
-              m.senderName.toLowerCase().includes('asistente')),
-        })),
-      );
-
-      if (notifyHuman) {
-        const humanMsgs = data.filter(
-          (m) =>
-            !m.isOwn &&
-            m.senderName !== 'Asistente Virtual' &&
-            !m.senderName.toLowerCase().includes('asistente'),
-        );
-        const latest = humanMsgs[humanMsgs.length - 1];
-        if (latest && latest.id !== lastHumanMsgId.current) {
-          if (lastHumanMsgId.current !== null) {
-            toast.info('Nuevo mensaje de soporte humano', {
-              description: latest.content.slice(0, 120),
-            });
-          }
-          lastHumanMsgId.current = latest.id;
-        }
-      }
-
-      await chatApi.markRead(id);
-    } catch {
-      // silencioso en polling
-    }
-  }, []);
-
   useEffect(() => {
-    if (!open || !conversationId) return;
-    syncHistory(conversationId, true);
-    const interval = setInterval(() => {
-      syncHistory(conversationId, true);
-    }, POLL_MS);
-    return () => clearInterval(interval);
-  }, [open, conversationId, syncHistory]);
+    if (escalateOpen) {
+      setSupportMessage(draftSupportMessage);
+      setSupportUrgency('MEDIUM');
+    }
+  }, [escalateOpen, draftSupportMessage]);
 
   if (!visible) return null;
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const content = input.trim();
-    if (!content || sending) return;
+  const handleCreateSupportTicket = async () => {
+    const message = supportMessage.trim();
+    if (!message || creatingTicket) return;
 
     if (!canUseChatbot()) {
-      toast.error('Debes iniciar sesión como turista o proveedor para usar el asistente.');
+      toast.error('Debes iniciar sesión como turista o proveedor.');
       setVisible(false);
       return;
     }
 
-    setSending(true);
-    setInput('');
+    setCreatingTicket(true);
     try {
-      const { data } = await chatApi.sendBotMessage(content, conversationId ?? undefined);
-      setConversationId(data.conversationId);
-      localStorage.setItem(SESSION_KEY, String(data.conversationId));
-      setSessionStatus(data.sessionStatus);
-
-      setMessages((prev) => [
-        ...prev,
-        { ...data.userMessage, fromBot: false },
-        { ...data.botMessage, fromBot: true },
-      ]);
-
-      if (!data.automated) {
-        toast.warning('Consulta escalada a soporte humano', {
-          description: 'Un agente te responderá en este mismo chat.',
-        });
-      } else if (data.suggestions?.length) {
-        toast.success('Sugerencias del asistente', {
-          description: data.suggestions[0]?.title,
-        });
-      }
+      const { data } = await chatApi.createSupportTicket({
+        message,
+        urgency: supportUrgency,
+        serviceName: 'Escalado desde asistente virtual',
+      });
+      setEscalateOpen(false);
+      setOpen(false);
+      toast.success('Ticket de soporte creado', {
+        description: 'Un asesor humano te responderá en Mensajes → Soporte.',
+      });
+      navigate(`/chat?conversation=${data.id}`);
     } catch (error: unknown) {
       const axiosError = error as {
         response?: { status?: number; data?: { message?: string } };
       };
       const status = axiosError?.response?.status;
-      const message = axiosError?.response?.data?.message;
-
+      const apiMessage = axiosError?.response?.data?.message;
       if (status === 401 || status === 403) {
-        toast.error(
-          message ||
-            'No autorizado para el asistente. Inicia sesión de nuevo como USER o PROVIDER.',
-        );
+        toast.error(apiMessage || 'No autorizado. Inicia sesión de nuevo.');
       } else {
-        toast.error(message || 'No se pudo enviar el mensaje al asistente.');
+        toast.error(apiMessage || 'No se pudo crear el ticket de soporte.');
       }
-      setInput(content);
     } finally {
-      setSending(false);
+      setCreatingTicket(false);
     }
   };
 
@@ -175,11 +173,7 @@ export function ChatWidget() {
               <Bot className="h-5 w-5 text-sky-300" />
               <div>
                 <p className="text-sm font-semibold">Asistente Virtual</p>
-                <p className="text-xs text-slate-300">
-                  {sessionStatus === 'NEEDS_HUMAN_SUPPORT' || sessionStatus === 'IN_PROGRESS'
-                    ? 'Agente humano en camino / activo'
-                    : 'FAQ · catálogo · soporte'}
-                </p>
+                <p className="text-xs text-slate-300">Solo en esta sesión · sin guardar en servidor</p>
               </div>
             </div>
             <button
@@ -193,52 +187,58 @@ export function ChatWidget() {
           </div>
 
           <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 px-3 py-4">
-            {messages.length === 0 && (
-              <div className="rounded-xl bg-white p-3 text-sm text-slate-600 shadow-sm">
-                Hola, soy el asistente de World Tourism Solutions. Pregúntame por reservas,
-                itinerario o servicios del catálogo. Si no sé la respuesta, te conecto con soporte.
-              </div>
-            )}
             {messages.map((message) => (
               <div
                 key={message.id}
-                className={`flex ${message.isOwn ? 'justify-end' : 'justify-start'}`}
+                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
                   className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
-                    message.isOwn
+                    message.role === 'user'
                       ? 'bg-sky-600 text-white'
-                      : message.fromBot
-                        ? 'border border-sky-100 bg-white text-slate-800'
-                        : 'border border-amber-100 bg-amber-50 text-slate-800'
+                      : 'border border-sky-100 bg-white text-slate-800'
                   }`}
                 >
-                  {!message.isOwn && (
-                    <p className="mb-1 text-[11px] font-medium opacity-70">
-                      {message.fromBot ? 'Bot' : message.senderName}
-                    </p>
+                  {message.role === 'bot' && (
+                    <p className="mb-1 text-[11px] font-medium opacity-70">Bot</p>
                   )}
                   <p className="whitespace-pre-wrap">{message.content}</p>
-                  <span className="mt-1 block text-[10px] opacity-60">
-                    {formatTime(message.sentAt)}
-                  </span>
+                  {formatTime(message.sentAt) && (
+                    <span className="mt-1 block text-[10px] opacity-60">
+                      {formatTime(message.sentAt)}
+                    </span>
+                  )}
                 </div>
               </div>
             ))}
             <div ref={bottomRef} />
           </div>
 
-          <form onSubmit={handleSend} className="flex gap-2 border-t border-slate-200 bg-white p-3">
+          <div className="border-t border-slate-100 bg-slate-50/80 px-3 pt-2">
+            <SuggestionChips chips={suggestions} onSelect={selectSuggestion} />
+          </div>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!canUseChatbot()) {
+                toast.error('Debes iniciar sesión como turista o proveedor.');
+                setVisible(false);
+                return;
+              }
+              sendMessage(e);
+            }}
+            className="flex gap-2 border-t border-slate-200 bg-white p-3"
+          >
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              disabled={sending}
               placeholder="Escribe tu consulta..."
               className="flex-1 rounded-full border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-400"
             />
             <button
               type="submit"
-              disabled={sending || !input.trim()}
+              disabled={!input.trim()}
               className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-sky-600 text-white transition hover:bg-sky-700 disabled:opacity-50"
               aria-label="Enviar"
             >
@@ -256,6 +256,72 @@ export function ChatWidget() {
       >
         {open ? <X className="h-6 w-6" /> : <MessageSquare className="h-6 w-6" />}
       </button>
+
+      <Dialog
+        open={escalateOpen}
+        onOpenChange={(next) => {
+          setEscalateOpen(next);
+          if (!next) {
+            setSupportMessage('');
+            setSupportUrgency('MEDIUM');
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-center sm:text-center">Hablar con un asesor</DialogTitle>
+            <DialogDescription className="text-center sm:text-center">
+              Se creará un ticket de soporte persistente para que un agente humano te atienda en
+              Mensajes.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <Input
+              placeholder="Describe tu solicitud..."
+              value={supportMessage}
+              onChange={(e) => setSupportMessage(e.target.value)}
+            />
+            <Select
+              value={supportUrgency}
+              onValueChange={(value) => setSupportUrgency(value as SupportUrgency)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Urgencia" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="LOW">Baja</SelectItem>
+                <SelectItem value="MEDIUM">Media</SelectItem>
+                <SelectItem value="HIGH">Alta</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <DialogFooter className="flex-row gap-2 sm:justify-stretch">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => setEscalateOpen(false)}
+              disabled={creatingTicket}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              className="flex-1 bg-amber-600 hover:bg-amber-700"
+              onClick={handleCreateSupportTicket}
+              disabled={creatingTicket || !supportMessage.trim()}
+            >
+              {creatingTicket ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                'Crear ticket'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

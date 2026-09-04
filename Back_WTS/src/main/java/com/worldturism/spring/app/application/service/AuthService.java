@@ -35,8 +35,9 @@ public class AuthService {
 
 	@Transactional
 	public AuthResponse register(RegisterRequest request) {
-		if (request.role() == Role.ADMIN) {
-			throw new IllegalArgumentException("No se puede registrar un administrador desde el formulario publico.");
+		if (request.role() == Role.ADMIN || request.role() == Role.SUPPORT) {
+			throw new IllegalArgumentException(
+					"No se puede registrar un administrador o soporte desde el formulario publico.");
 		}
 
 		if (userRepository.existsByEmail(request.email())) {

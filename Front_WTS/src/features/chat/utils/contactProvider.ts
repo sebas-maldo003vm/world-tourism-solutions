@@ -16,7 +16,7 @@ export async function contactProvider(
     const { data } = await chatApi.startConversation({
       providerProfileId,
     });
-    navigate(`/chat?conversation=${data.id}`);
+    navigate(`/chat?conversation=${data.id}`, { state: { conversation: data } });
   } catch {
     navigate('/chat');
   }

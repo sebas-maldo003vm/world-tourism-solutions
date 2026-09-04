@@ -1,165 +1,181 @@
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-
 import {
-  Search,
   User,
   Map,
   Calendar,
-  LogOut
+  LogOut,
+  MessageSquare,
 } from 'lucide-react';
-
-import { Button } from '@/shared/components/ui/button';
-import { Input } from '@/shared/components/ui/input';
-
-import { useEffect, useState } from 'react';
+import { chatApi } from '@/features/chat/services/chatApi';
+import { notifyAuthChanged } from '@/features/catalog/hooks/useFavorites';
 
 interface UserData {
   id: number;
   name: string;
   email: string;
-  role: 'USER' | 'PROVIDER' | 'ADMIN';
+  role: 'USER' | 'PROVIDER' | 'ADMIN' | 'SUPPORT';
 }
 
+const ghostBtn =
+  'inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100';
+const iconBtn =
+  'inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-700 transition-colors hover:bg-gray-100';
+const primaryBtn =
+  'inline-flex items-center justify-center rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700';
 
 export function Header() {
-
   const navigate = useNavigate();
 
   const [user, setUser] = useState<UserData | null>(null);
+  const [hasUnread, setHasUnread] = useState(false);
 
   useEffect(() => {
-
     const storedUser = localStorage.getItem('user');
 
     if (storedUser) {
       setUser(JSON.parse(storedUser));
     }
-
   }, []);
 
+  useEffect(() => {
+    if (!user) {
+      setHasUnread(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchUnread = async () => {
+      try {
+        const { data } = await chatApi.listConversations();
+        if (!cancelled) {
+          const isStaffUser = user.role === 'ADMIN' || user.role === 'SUPPORT';
+          // Badge del icono Mensajes: bandeja comercial (proveedores).
+          // Staff también ve soporte; el resto no cuenta tickets/bot en el indicador.
+          setHasUnread(
+            data.some((c) => {
+              if (c.unreadCount <= 0) return false;
+              if (isStaffUser) return true;
+              return c.conversationType === 'CLIENT_TO_PROVIDER';
+            }),
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setHasUnread(false);
+        }
+      }
+    };
+
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 15000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [user]);
+
   const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('role');
+    setUser(null);
+    notifyAuthChanged();
 
-  localStorage.removeItem('token');
-  localStorage.removeItem('user');
-  localStorage.removeItem('role');
-setUser(null);
+    navigate('/', { replace: true });
+  };
 
-  navigate('/', { replace: true });
-
-};
-
-  // LOGIN
   const isLogged = !!user;
-
-  // ROLES
   const isTurista = user?.role === 'USER';
-
   const isAccesor = user?.role === 'PROVIDER';
-
   const isAdmin = user?.role === 'ADMIN';
+  const isSupport = user?.role === 'SUPPORT';
+  const isStaff = isAdmin || isSupport;
+
   const getHomeRoute = () => {
-
-    if (isAdmin) return '/admin';
-
+    if (isStaff) return '/admin';
     if (isAccesor) return '/dashboard-accesor';
-
     if (isTurista) return '/home-logueado';
-
     return '/';
   };
+
   return (
-    <header className="border-b bg-white sticky top-0 z-50">
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-
-        <div className="flex items-center justify-between h-16">
-
+    <header className="sticky top-0 z-50 border-b bg-white">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center justify-between">
           {/* LOGO */}
           <Link to={getHomeRoute()} className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-700 rounded-lg flex items-center justify-center">
-
-              <span className="text-white font-bold text-lg">
-                WTS
-              </span>
-
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-700">
+              <span className="text-lg font-bold text-white">WTS</span>
             </div>
-
-            <span className="font-semibold text-xl hidden sm:block">
+            <span className="hidden text-xl font-semibold sm:block">
               World Tourism Solutions
             </span>
-
           </Link>
 
           {/* BUSCADOR */}
           {isTurista && (
-
-            <div className="hidden md:flex items-center flex-1 max-w-md mx-8">
-
-              <div className="relative w-full">
-
-                
-              </div>
-
+            <div className="mx-8 hidden max-w-md flex-1 items-center md:flex">
+              <div className="relative w-full" />
             </div>
           )}
 
           {/* NAV */}
-          <div className="hidden lg:flex items-center gap-1 mr-4">
-
+          <div className="mr-4 hidden items-center gap-1 lg:flex">
             {isTurista && (
               <>
-                <Button
-                  variant="ghost"
+                <button
+                  type="button"
                   onClick={() => navigate('/map')}
-                  className="gap-2"
+                  className={ghostBtn}
                 >
                   <Map className="h-4 w-4" />
                   Mapa
-                </Button>
+                </button>
 
-                <Button
-                  variant="ghost"
+                <button
+                  type="button"
                   onClick={() => navigate('/itinerary')}
-                  className="gap-2"
+                  className={ghostBtn}
                 >
                   <Calendar className="h-4 w-4" />
                   Itinerario
-                </Button>
+                </button>
               </>
             )}
 
-            {isAdmin && (
-              <Button
-                variant="ghost"
+            {isStaff && (
+              <button
+                type="button"
                 onClick={() => navigate('/admin')}
+                className={ghostBtn}
               >
-                Dashboard Admin
-              </Button>
+                {isSupport ? 'Panel Soporte' : 'Dashboard Admin'}
+              </button>
             )}
-
-           
-
           </div>
 
           {/* DERECHA */}
           <div className="flex items-center gap-3">
-
             {!isLogged ? (
               <>
-                <Button
-                  variant="ghost"
+                <button
+                  type="button"
                   onClick={() => navigate('/login')}
-                  className="hidden sm:inline-flex"
+                  className={`${ghostBtn} hidden sm:inline-flex`}
                 >
                   Iniciar sesión
-                </Button>
+                </button>
 
-                <Button
+                <button
+                  type="button"
                   onClick={() => navigate('/register')}
-                  className="bg-blue-600 hover:bg-blue-700 rounded-full"
+                  className={primaryBtn}
                 >
                   Registrarse
-                </Button>
+                </button>
               </>
             ) : (
               <>
@@ -167,31 +183,47 @@ setUser(null);
                   {user?.name}
                 </span>
 
-                <Button
-                  variant="ghost"
-                  size="icon"
+                <button
+                  type="button"
                   onClick={handleLogout}
-                  className="rounded-full"
+                  className={iconBtn}
+                  aria-label="Cerrar sesión"
                 >
                   <LogOut className="h-5 w-5" />
-                </Button>
+                </button>
               </>
+            )}
+
+            {/* ICON CHAT — acceso global a /chat */}
+            {(isTurista || isAccesor || isStaff) && (
+              <button
+                type="button"
+                onClick={() => navigate('/chat')}
+                className={`relative ${iconBtn}`}
+                aria-label={hasUnread ? 'Mensajes (sin leer)' : 'Mensajes'}
+              >
+                <MessageSquare className="h-5 w-5" />
+                {hasUnread && (
+                  <span
+                    className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-blue-600 ring-2 ring-white"
+                    aria-hidden="true"
+                  />
+                )}
+              </button>
             )}
 
             {/* ICON USER */}
             {(isTurista || isAccesor) && (
-              <Button
-                variant="ghost"
-                size="icon"
+              <button
+                type="button"
                 onClick={() => navigate('/profile')}
-                className="rounded-full"
+                className={iconBtn}
+                aria-label="Perfil"
               >
                 <User className="h-5 w-5" />
-              </Button>
+              </button>
             )}
-
           </div>
-
         </div>
       </div>
     </header>

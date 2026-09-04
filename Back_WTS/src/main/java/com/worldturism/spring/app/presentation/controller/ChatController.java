@@ -9,6 +9,7 @@ import com.worldturism.spring.app.presentation.dto.ConversationResponse;
 import com.worldturism.spring.app.presentation.dto.CreateSupportTicketRequest;
 import com.worldturism.spring.app.presentation.dto.MessageResponse;
 import com.worldturism.spring.app.presentation.dto.SendMessageRequest;
+import com.worldturism.spring.app.presentation.dto.StartClientConversationRequest;
 import com.worldturism.spring.app.presentation.dto.StartConversationRequest;
 import com.worldturism.spring.app.presentation.dto.SupportTicketResponse;
 import com.worldturism.spring.app.presentation.dto.UpdateSupportStatusRequest;
@@ -78,6 +79,15 @@ public class ChatController {
 			@AuthenticationPrincipal AppUser user,
 			@Valid @RequestBody StartConversationRequest request) {
 		return supportChatService.iniciarConversacionConProveedor(user, request);
+	}
+
+	@PostMapping("/conversations/with-client")
+	@ResponseStatus(HttpStatus.CREATED)
+	@Operation(summary = "Iniciar conversación con un cliente (proveedor)")
+	public ConversationResponse iniciarConversacionConCliente(
+			@AuthenticationPrincipal AppUser user,
+			@Valid @RequestBody StartClientConversationRequest request) {
+		return supportChatService.iniciarConversacionConCliente(user, request);
 	}
 
 	@GetMapping("/conversations/{conversationId}/messages")

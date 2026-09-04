@@ -2,10 +2,13 @@ import { api } from '@/core/api/client';
 
 export type ConversationType =
   | 'CLIENT_TO_PROVIDER'
+  | 'CATALOG_INQUIRY'
+  | 'HUMAN_SUPPORT'
   | 'CLIENT_TO_SUPPORT'
   | 'PROVIDER_TO_SUPPORT';
 
 export type SupportStatus =
+  | 'UNASSIGNED'
   | 'OPEN'
   | 'IN_PROGRESS'
   | 'NEEDS_HUMAN_SUPPORT'
@@ -16,6 +19,7 @@ export type SupportUrgency = 'LOW' | 'MEDIUM' | 'HIGH';
 
 export interface ConversationItem {
   id: number;
+  createdAt?: string;
   displayName: string;
   lastMessage: string;
   lastMessageAt: string;
@@ -23,8 +27,15 @@ export interface ConversationItem {
   conversationType: ConversationType;
   supportStatus?: SupportStatus;
   urgency?: SupportUrgency;
+  subject?: string;
+  assignedAdvisorId?: number;
+  assignedAdvisorName?: string;
   otherParticipantId?: number;
   otherParticipantName?: string;
+  otherParticipantAvatarUrl?: string;
+  clientId?: number;
+  clientName?: string;
+  clientAvatarUrl?: string;
   /** Alias de providerProfileId (perfil del proveedor). */
   providerId?: number;
   providerProfileId?: number;
@@ -37,9 +48,11 @@ export interface ConversationItem {
 
 export interface ChatMessage {
   id: number;
+  conversationId?: number;
   senderId: number;
   senderName: string;
   content: string;
+  imageUrl?: string | null;
   sentAt: string;
   isRead: boolean;
   isOwn: boolean;
@@ -54,6 +67,8 @@ export interface SupportTicket {
   createdAt: string;
   status: SupportStatus;
   conversationType: ConversationType;
+  assignedAdvisorId?: number | null;
+  assignedAdvisorName?: string | null;
 }
 
 export interface ChatBotSuggestion {
@@ -75,6 +90,12 @@ export interface ChatBotMessageResponse {
 
 export interface StartConversationPayload {
   providerProfileId: number;
+  initialMessage?: string;
+}
+
+export interface StartClientConversationPayload {
+  clientUserId: number;
+  providerProfileId?: number;
   initialMessage?: string;
 }
 
@@ -117,6 +138,11 @@ export const chatApi = {
 
   startConversation: (payload: StartConversationPayload) =>
     api.post<ConversationItem>('/chat/conversations', payload, {
+      headers: authHeaders(),
+    }),
+
+  startClientConversation: (payload: StartClientConversationPayload) =>
+    api.post<ConversationItem>('/chat/conversations/with-client', payload, {
       headers: authHeaders(),
     }),
 

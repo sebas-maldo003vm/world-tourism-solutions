@@ -25,7 +25,7 @@ El proyecto resuelve la fragmentación típica del sector (información dispersa
 |-----------|-------------|
 | Catálogo comercial | Publicación y descubrimiento de perfiles/servicios de proveedores |
 | Reservas | Solicitud, cotización y seguimiento del estado de reservas |
-| Mensajería | Chat interno cliente ↔ proveedor, soporte y asistente virtual |
+| Mensajería | Chat cliente ↔ proveedor, cola de soporte humano con asignación a asesores, y asistente virtual (FAQ + escalamiento) |
 | Itinerarios | Planificación personalizada de viajes con ítems vinculados a ofertas reales |
 | Valoraciones | Sistema de reseñas y ratings asociados a cada perfil comercial |
 
@@ -89,6 +89,7 @@ Front_WTS/src/
 ├── core/         # Cliente API (Axios + JWT)
 ├── shared/       # Componentes reutilizables
 ├── features/     # auth, catalog, bookings, reviews, provider, profile, chat, admin
+│                 # chat: pages, ChatWidget, hooks (useEphemeralChatbot), utils (conversationDisplay)
 └── styles/       # Estilos globales
 ```
 
@@ -126,6 +127,7 @@ users (1) ──< (N) provider_profiles
                     ├──< (N) provider_profile_images
                     ├──< (N) bookings ── (0..1) reviews
                     ├──< (N) conversations ──< (N) messages
+                    │         └── assigned_advisor_id → users (asesor SUPPORT/ADMIN)
                     ├──< (N) reviews
                     ├──< (N) favorites
                     └──< (N) itinerary_items ──> itineraries ──> users
@@ -139,11 +141,12 @@ users (1) ──< (N) provider_profiles
 | `provider_profiles` | `provider_profile_images` | 1:N | `provider_profile_id` |
 | `users` / `provider_profiles` | `bookings` | N:1 / N:1 | `user_id`, `provider_profile_id` |
 | `users` / `provider_profiles` | `conversations` | N:1 / N:1 | `user_id`, `provider_profile_id` |
+| `users` | `conversations` (asesor) | 1:N | `assigned_advisor_id` |
 | `conversations` | `messages` | 1:N | `conversation_id` |
 | `users` / `provider_profiles` | `reviews` | N:1 / N:1 | `user_id`, `provider_profile_id` |
 | `users` | `itineraries` | 1:N | `user_id` |
 | `itineraries` / `provider_profiles` | `itinerary_items` | 1:N / N:1 | `itinerary_id`, `provider_profile_id` |
-| `users` / `provider_profiles` | `favorites` | N:1 / N:1 | `user_id`, `business_id` |
+| `users` / `provider_profiles` | `favorites` | N:1 / N:1 | `user_id`, `provider_profile_id` |
 
 ---
 
@@ -173,6 +176,22 @@ Las entidades dependientes ya no apuntan a un `service_id`. Se vinculan **exclus
 | `conversations` | `Conversation` | `provider_profile_id` |
 | `reviews` | `Review` | `provider_profile_id` |
 | `itinerary_items` | `ItineraryItem` | `provider_profile_id` |
+| `favorites` | `Favorite` | `provider_profile_id` (antes `business_id`) |
+
+La migración `SqliteFavoriteProviderProfileMigration` renombra/reconstruye `favorites` para usar `provider_profile_id` con unicidad `(user_id, provider_profile_id)`.
+
+#### Conversaciones: bot vs soporte humano
+
+`Conversation` distingue sesiones del asistente y tickets humanos:
+
+| Campo / concepto | Descripción |
+|------------------|-------------|
+| `is_bot_chat` | `true` en sesiones del asistente virtual; se excluyen del inbox ADMIN/SUPPORT y del chat comercial |
+| `assigned_advisor_id` | Asesor (`SUPPORT`/`ADMIN`) dueño del ticket; `null` mientras está en cola |
+| `SupportStatus.UNASSIGNED` | Ticket humano abierto sin asesor asignado |
+| Tipos | `CLIENT_TO_PROVIDER`, `CATALOG_INQUIRY`, `HUMAN_SUPPORT`, `CLIENT_TO_SUPPORT`, `PROVIDER_TO_SUPPORT` |
+
+Migraciones asociadas: `SqliteConversationBotChatMigration`, `SqliteConversationAssignedAdvisorMigration`.
 
 #### Galería de imágenes
 
@@ -184,6 +203,7 @@ provider_profiles (1) ──< (N) provider_profile_images
         ├──< bookings
         ├──< reviews
         ├──< conversations
+        ├──< favorites
         └──< itinerary_items
 ```
 
@@ -197,12 +217,12 @@ provider_profiles (1) ──< (N) provider_profile_images
 | `provider_profiles` | `ProviderProfile` | Perfil/negocio/oferta comercial del proveedor (núcleo del catálogo) |
 | `provider_profile_images` | `ProviderProfileImage` | Galería multimedia asociada a cada perfil |
 | `bookings` | `Booking` | Reservas/cotizaciones ligadas a un perfil y a un usuario |
-| `conversations` | `Conversation` | Hilos de chat (cliente–proveedor, soporte o bot) |
+| `conversations` | `Conversation` | Hilos de chat (cliente–proveedor, soporte humano o bot); incluye `is_bot_chat` y `assigned_advisor` |
 | `messages` | `Message` | Mensajes individuales dentro de una conversación |
 | `reviews` | `Review` | Valoraciones y comentarios sobre un perfil (asociables a una reserva) |
 | `itineraries` | `Itinerary` | Planes de viaje creados por el usuario |
 | `itinerary_items` | `ItineraryItem` | Ítems del itinerario vinculados a un `provider_profile` |
-| `favorites` | `Favorite` | Perfiles marcados como favoritos por el usuario |
+| `favorites` | `Favorite` | Perfiles (`provider_profile_id`) marcados como favoritos por el turista autenticado |
 
 ---
 
@@ -214,10 +234,9 @@ provider_profiles (1) ──< (N) provider_profile_images
 |-----|-----------------|
 | `ADMIN` | Administración completa de usuarios, perfiles y operaciones de la plataforma |
 | `USER` | Exploración del catálogo, reservas, reseñas, favoritos, chat e itinerarios |
-| `PROVIDER` | Publicación y gestión de perfiles/ofertas comerciales y atención de reservas |
+| `PROVIDER` | Publicación y gestión de perfiles/ofertas comerciales, atención de reservas y chat con clientes |
+| `SUPPORT` | Inbox de tickets humanos, asignación/reclamación y respuesta; sin administración total de la plataforma |
 | `BOT` | Identidad del asistente virtual en conversaciones automatizadas |
-
-> También existe el rol `SUPPORT` para gestión de tickets y estados de soporte, sin privilegios de administración total.
 
 ### Publicación y administración de perfiles/servicios
 
@@ -237,8 +256,26 @@ provider_profiles (1) ──< (N) provider_profile_images
 
 - Conversaciones cliente ↔ proveedor vinculadas a `provider_profile_id`
 - Mensajes de texto (e imágenes) con estado de lectura
-- Canales de soporte y asistente virtual (`BOT`)
-- Historial persistente por conversación
+- Inbox por rol: turista, proveedor y supervisión staff (ADMIN/SUPPORT ven cliente y negocio)
+- DTO enriquecido (`ConversationResponse`): contraparte, avatares, `clientId`/`clientName` y `isBotChat`
+- Historial persistente por conversación (se excluyen chats del bot del listado humano)
+
+### Asistente virtual y soporte humano
+
+| Canal | Comportamiento |
+|-------|----------------|
+| **Widget / FAQ efímero** | Chatbot de ayuda rápida en frontend (`useEphemeralChatbot`); no genera ticket hasta escalar |
+| **Escalamiento** | El usuario puede “Hablar con un asesor”: abre ticket en cola (`POST /api/support/conversations/open`) |
+| **Cola de soporte** | Estado inicial `UNASSIGNED`; tipo `HUMAN_SUPPORT` (también legacy `CLIENT_TO_SUPPORT` / `PROVIDER_TO_SUPPORT`) |
+| **Asignación** | Asesor reclama el ticket (`PUT /api/support/conversations/{id}/assign`) → `IN_PROGRESS` + `assigned_advisor` |
+| **Inbox staff** | `GET /api/support/conversations/inbox` — sin asignar o asignados al asesor autenticado |
+| **Sesiones bot persistentes** | Marcadas con `is_bot_chat = true`; no aparecen en paneles de soporte ni chats comerciales |
+
+### Favoritos (turista)
+
+- Solo rol `USER`, autenticado con JWT (`/api/favorites/**`)
+- Objetivo del favorito: `ProviderProfile` (`provider_profile_id`)
+- Aislamiento por usuario en servicio; el frontend limpia/recarga favoritos al login, registro o logout (`notifyAuthChanged`)
 
 ### Planificador interactivo de itinerarios
 

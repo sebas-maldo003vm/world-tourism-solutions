@@ -1,6 +1,6 @@
 import { api } from '@/core/api/client';
 
-export type UserRole = 'USER' | 'PROVIDER' | 'ADMIN' | 'SUPPORT';
+export type UserRole = 'USER' | 'PROVIDER' | 'ADMIN' | 'SUPPORT' | 'BOT';
 
 export interface UserProfile {
   id: number;

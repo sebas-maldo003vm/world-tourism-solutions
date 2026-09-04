@@ -15,6 +15,7 @@ import {
 import { Eye, EyeOff } from 'lucide-react';
 
 import { api } from '@/core/api/client';
+import { notifyAuthChanged } from '@/features/catalog/hooks/useFavorites';
 
 export function Register() {
 
@@ -47,6 +48,7 @@ export function Register() {
     switch (role) {
 
       case 'ADMIN':
+      case 'SUPPORT':
         navigate('/admin',{ replace: true });
         break;
 
@@ -106,6 +108,7 @@ export function Register() {
         'user',
         JSON.stringify(data.user)
       );
+      notifyAuthChanged();
 
       // REDIRECCION
       redirectByRole(

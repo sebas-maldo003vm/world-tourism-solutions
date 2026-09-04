@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from '@/shared/components/ui/card';
 import { api } from '@/core/api/client';
+import { notifyAuthChanged } from '@/features/catalog/hooks/useFavorites';
 
 export function Login() {
   const navigate = useNavigate();
@@ -36,9 +37,11 @@ export function Login() {
 
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
+      notifyAuthChanged();
 
       switch (data.user.role) {
         case 'ADMIN':
+        case 'SUPPORT':
           navigate('/admin', { replace: true });
           break;
 

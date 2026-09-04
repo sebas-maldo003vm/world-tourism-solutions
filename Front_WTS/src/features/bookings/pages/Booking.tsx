@@ -6,11 +6,12 @@ import { Label } from '@/shared/components/ui/label';
 import { Input } from '@/shared/components/ui/input';
 import { Calendar } from '@/shared/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover';
-import { Calendar as CalendarIcon, MapPin, Star, Users, DollarSign, Clock } from 'lucide-react';
+import { Calendar as CalendarIcon, MapPin, Star, Users, DollarSign, Clock, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { api } from '@/core/api/client';
 import { ImageCarousel } from '@/shared/components/catalog/ImageCarousel';
+import { contactProvider } from '@/features/chat/utils/contactProvider';
 
 interface Business {
   id: number;
@@ -64,6 +65,7 @@ export function Booking() {
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [people, setPeople] = useState(1);
+  const [contacting, setContacting] = useState(false);
 
   useEffect(() => {
     loadBusiness();
@@ -387,6 +389,23 @@ export function Booking() {
                       ? 'Procesando...'
                       : 'Confirmar reserva'}
                   </Button>
+
+                  {isAuthenticated && business?.id && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={contacting}
+                      onClick={async () => {
+                        setContacting(true);
+                        await contactProvider(navigate, business.id);
+                        setContacting(false);
+                      }}
+                      className="w-full rounded-full h-12 text-base gap-2"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      {contacting ? 'Abriendo chat...' : 'Contactar proveedor'}
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
