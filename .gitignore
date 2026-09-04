@@ -1,41 +1,30 @@
 # =========================
-# FRONTEND - React / Vite
-# =========================
-
-FRONT_WTS/node_modules/
-FRONT_WTS/dist/
-
-# =========================
-# BACKEND - Spring Boot / Maven
-# =========================
-
-BACK_WTS/target/
-
-# =========================
-# IDE
-# =========================
-
-.vscode/
-.idea/
-*.iml
-
-# =========================
-# Environment variables
+# Raíz / IDEs / SO
 # =========================
 
 .env
-.env.*
-!.env.example
-
-# =========================
-# Logs
-# =========================
-
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
 *.log
 
 # =========================
-# OS
+# Backend (Back_WTS) — Spring Boot / Maven / SQLite
 # =========================
 
-.DS_Store
-Thumbs.db
+Back_WTS/target/
+Back_WTS/*.db
+Back_WTS/*.db-shm
+Back_WTS/*.db-wal
+Back_WTS/uploads/
+Back_WTS/.mvn/
+
+# =========================
+# Frontend (Front_WTS) — React / Vite
+# =========================
+
+Front_WTS/node_modules/
+Front_WTS/dist/
+Front_WTS/.env.local
