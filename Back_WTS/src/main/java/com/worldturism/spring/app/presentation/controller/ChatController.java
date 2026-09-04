@@ -1,7 +1,10 @@
 package com.worldturism.spring.app.presentation.controller;
 
+import com.worldturism.spring.app.application.service.ChatBotService;
 import com.worldturism.spring.app.application.service.SupportChatService;
 import com.worldturism.spring.app.domain.model.AppUser;
+import com.worldturism.spring.app.presentation.dto.ChatBotMessageRequest;
+import com.worldturism.spring.app.presentation.dto.ChatBotMessageResponse;
 import com.worldturism.spring.app.presentation.dto.ConversationResponse;
 import com.worldturism.spring.app.presentation.dto.CreateSupportTicketRequest;
 import com.worldturism.spring.app.presentation.dto.MessageResponse;
@@ -26,13 +29,40 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/chat")
-@Tag(name = "Chat y Soporte", description = "Comunicación entre clientes, proveedores y soporte.")
+@Tag(name = "Chat y Soporte", description = "Comunicación entre clientes, proveedores, chatbot y soporte.")
 public class ChatController {
 
 	private final SupportChatService supportChatService;
+	private final ChatBotService chatBotService;
 
-	public ChatController(SupportChatService supportChatService) {
+	public ChatController(SupportChatService supportChatService, ChatBotService chatBotService) {
 		this.supportChatService = supportChatService;
+		this.chatBotService = chatBotService;
+	}
+
+	@PostMapping("/message")
+	@ResponseStatus(HttpStatus.CREATED)
+	@Operation(summary = "Procesar mensaje del asistente virtual híbrido (FAQ/catálogo o escalado a humano)")
+	public ChatBotMessageResponse procesarMensajeChatbot(
+			@AuthenticationPrincipal AppUser user,
+			@Valid @RequestBody ChatBotMessageRequest request) {
+		return chatBotService.procesarMensaje(user, request);
+	}
+
+	@GetMapping("/tickets/active")
+	@Operation(summary = "Listar conversaciones que requieren intervención humana (ADMIN / SUPPORT)")
+	public List<SupportTicketResponse> listarTicketsActivos(@AuthenticationPrincipal AppUser user) {
+		return chatBotService.listarTicketsActivos(user);
+	}
+
+	@PostMapping("/tickets/{id}/reply")
+	@ResponseStatus(HttpStatus.CREATED)
+	@Operation(summary = "Responder un ticket escalado por el chatbot (ADMIN / SUPPORT)")
+	public MessageResponse responderTicketChatbot(
+			@AuthenticationPrincipal AppUser user,
+			@PathVariable("id") Long conversationId,
+			@Valid @RequestBody SendMessageRequest request) {
+		return chatBotService.responderTicket(user, conversationId, request);
 	}
 
 	@GetMapping("/conversations")
@@ -87,13 +117,13 @@ public class ChatController {
 	}
 
 	@GetMapping("/support")
-	@Operation(summary = "Listar tickets de soporte (solo ADMIN)")
+	@Operation(summary = "Listar tickets de soporte (ADMIN / SUPPORT)")
 	public List<SupportTicketResponse> listarTicketsSoporte(@AuthenticationPrincipal AppUser user) {
 		return supportChatService.listarTicketsSoporte(user);
 	}
 
 	@PatchMapping("/support/{conversationId}/status")
-	@Operation(summary = "Actualizar estado de ticket de soporte (solo ADMIN)")
+	@Operation(summary = "Actualizar estado de ticket de soporte (ADMIN / SUPPORT)")
 	public SupportTicketResponse actualizarEstadoTicket(
 			@AuthenticationPrincipal AppUser user,
 			@PathVariable Long conversationId,
@@ -103,7 +133,7 @@ public class ChatController {
 
 	@PostMapping("/support/{conversationId}/messages")
 	@ResponseStatus(HttpStatus.CREATED)
-	@Operation(summary = "Responder ticket de soporte (solo ADMIN)")
+	@Operation(summary = "Responder ticket de soporte (ADMIN / SUPPORT)")
 	public MessageResponse responderTicketSoporte(
 			@AuthenticationPrincipal AppUser user,
 			@PathVariable Long conversationId,

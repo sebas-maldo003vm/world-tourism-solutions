@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { Header } from '@/shared/components/layout/Header';
 import { FavoritesProvider } from '@/features/catalog/hooks/useFavorites';
+import { ChatWidget } from '@/features/chat/components/ChatWidget';
 
 export function Layout() {
 
@@ -12,14 +13,19 @@ export function Layout() {
   ];
 
   const hideHeader = hiddenRoutes.includes(location.pathname);
+  // Widget del asistente virtual: oculto solo en auth y admin; visible en /chat
+  // para no mezclar el bot con la bandeja comercial de proveedores.
+  const hideChatWidget = hideHeader || location.pathname.startsWith('/admin');
 
   return (
     <FavoritesProvider>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen overflow-x-hidden bg-gray-50">
 
         {!hideHeader && <Header />}
 
         <Outlet />
+
+        {!hideChatWidget && <ChatWidget />}
 
       </div>
     </FavoritesProvider>
