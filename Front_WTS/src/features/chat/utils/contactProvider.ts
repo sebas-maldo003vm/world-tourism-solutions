@@ -1,10 +1,10 @@
 import type { NavigateFunction } from 'react-router-dom';
 import { chatApi } from '@/features/chat/services/chatApi';
 
+/** Inicia chat con un negocio (ProviderProfile.id). */
 export async function contactProvider(
   navigate: NavigateFunction,
-  providerUserId: number,
-  serviceId?: number,
+  providerProfileId: number,
 ): Promise<void> {
   const token = localStorage.getItem('token');
   if (!token) {
@@ -14,8 +14,7 @@ export async function contactProvider(
 
   try {
     const { data } = await chatApi.startConversation({
-      providerId: providerUserId,
-      serviceId,
+      providerProfileId,
     });
     navigate(`/chat?conversation=${data.id}`);
   } catch {
