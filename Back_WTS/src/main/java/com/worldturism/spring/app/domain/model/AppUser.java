@@ -40,6 +40,9 @@ public class AppUser implements UserDetails {
 	@Column(nullable = false, length = 30)
 	private String phoneNumber;
 
+	@Column(name = "profile_picture_url")
+	private String profilePictureUrl;
+
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
 	private Role role;
@@ -57,16 +60,10 @@ public class AppUser implements UserDetails {
 	private List<Review> reviews = new ArrayList<>();
 
 	@OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
-	private List<SavedService> savedServices = new ArrayList<>();
-
-	@OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
 	private List<ProviderProfile> providerProfiles = new ArrayList<>();
 
 	@OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
 	private List<Conversation> conversationsAsUser = new ArrayList<>();
-
-	@OneToMany(mappedBy = "provider", cascade = CascadeType.ALL, orphanRemoval = true)
-	private List<Conversation> conversationsAsProvider = new ArrayList<>();
 
 	@Column(nullable = false, updatable = false)
 	private Instant createdAt;
@@ -164,6 +161,14 @@ public class AppUser implements UserDetails {
 		this.phoneNumber = phoneNumber;
 	}
 
+	public String getProfilePictureUrl() {
+		return profilePictureUrl;
+	}
+
+	public void setProfilePictureUrl(String profilePictureUrl) {
+		this.profilePictureUrl = profilePictureUrl;
+	}
+
 	public Role getRole() {
 		return role;
 	}
@@ -204,14 +209,6 @@ public class AppUser implements UserDetails {
 		this.reviews = reviews;
 	}
 
-	public List<SavedService> getSavedServices() {
-		return savedServices;
-	}
-
-	public void setSavedServices(List<SavedService> savedServices) {
-		this.savedServices = savedServices;
-	}
-
 	public List<ProviderProfile> getProviderProfiles() {
 		return providerProfiles;
 	}
@@ -226,14 +223,6 @@ public class AppUser implements UserDetails {
 
 	public void setConversationsAsUser(List<Conversation> conversationsAsUser) {
 		this.conversationsAsUser = conversationsAsUser;
-	}
-
-	public List<Conversation> getConversationsAsProvider() {
-		return conversationsAsProvider;
-	}
-
-	public void setConversationsAsProvider(List<Conversation> conversationsAsProvider) {
-		this.conversationsAsProvider = conversationsAsProvider;
 	}
 
 	public Instant getCreatedAt() {

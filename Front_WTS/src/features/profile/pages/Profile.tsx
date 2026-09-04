@@ -24,7 +24,7 @@ interface UserData {
   id: number;
   name: string;
   email: string;
-  role: 'USER' | 'PROVIDER' | 'ADMIN';
+  role: 'USER' | 'PROVIDER' | 'ADMIN' | 'SUPPORT';
 }
 
 interface BookingData {
@@ -321,8 +321,13 @@ export function Profile() {
                             variant="outline"
                             size="sm"
                             onClick={async () => {
-                              if (booking.providerUserId) {
-                                await contactProvider(navigate, booking.providerUserId);
+                              const businessId = Number(
+                                booking.businessId ||
+                                  booking.business?.id ||
+                                  booking.business?.businessId
+                              );
+                              if (businessId) {
+                                await contactProvider(navigate, businessId);
                               } else {
                                 navigate('/chat');
                               }

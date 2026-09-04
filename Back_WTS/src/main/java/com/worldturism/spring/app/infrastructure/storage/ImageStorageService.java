@@ -36,6 +36,15 @@ public class ImageStorageService {
 				.toList();
 	}
 
+	/**
+	 * Guarda la foto de perfil en {@code uploads/profiles/} y retorna la ruta pública
+	 * (accesible en {@code http://localhost:8080/uploads/profiles/...}).
+	 */
+	public String storeProfilePicture(MultipartFile image) {
+		validateSingleImage(image);
+		return store(image, "profiles");
+	}
+
 	public void deleteStoredImages(List<String> imageUrls) {
 		if (imageUrls == null) {
 			return;
@@ -44,6 +53,10 @@ public class ImageStorageService {
 		for (String imageUrl : imageUrls) {
 			deleteStoredImage(imageUrl);
 		}
+	}
+
+	public void deleteStoredImagePublic(String imageUrl) {
+		deleteStoredImage(imageUrl);
 	}
 
 	private String store(MultipartFile image, String folder) {
@@ -94,12 +107,16 @@ public class ImageStorageService {
 		}
 
 		for (MultipartFile image : images) {
-			if (image == null || image.isEmpty()) {
-				throw new IllegalArgumentException("Las imagenes no pueden estar vacias.");
-			}
-			if (!ALLOWED_CONTENT_TYPES.contains(image.getContentType())) {
-				throw new IllegalArgumentException("Solo se permiten imagenes JPG, PNG o WEBP.");
-			}
+			validateSingleImage(image);
+		}
+	}
+
+	private void validateSingleImage(MultipartFile image) {
+		if (image == null || image.isEmpty()) {
+			throw new IllegalArgumentException("Las imagenes no pueden estar vacias.");
+		}
+		if (!ALLOWED_CONTENT_TYPES.contains(image.getContentType())) {
+			throw new IllegalArgumentException("Solo se permiten imagenes JPG, PNG o WEBP.");
 		}
 	}
 
