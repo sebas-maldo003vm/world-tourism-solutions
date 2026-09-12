@@ -13,6 +13,8 @@ import { Button } from '@/shared/components/ui/button';
 import { Map } from 'lucide-react';
 
 import { api } from '@/core/api/client';
+import { LocationButton } from '@/shared/components/catalog/LocationButton';
+import type { UserCoords } from '@/shared/hooks/useGeolocation';
 
 interface Service {
   id: number;
@@ -33,6 +35,8 @@ interface Service {
 }
 
 export function HomeUsuarioLogueado() {
+
+  const [userPosition, setUserPosition] = useState<UserCoords | null>(null);
 
   const navigate = useNavigate();
 
@@ -184,11 +188,10 @@ export function HomeUsuarioLogueado() {
 
         <div className="flex gap-6">
 
-          <div className={`flex-1 ${
-            showMap
+          <div className={`flex-1 ${showMap
               ? 'hidden lg:block'
               : ''
-          }`}>
+            }`}>
 
             <div className="mb-4">
 
@@ -252,13 +255,17 @@ export function HomeUsuarioLogueado() {
 
           </div>
 
-          <div className={`${
-            showMap
+          <div className={`${showMap
               ? 'block'
               : 'hidden lg:block'
-          } w-full lg:w-[400px] xl:w-[500px]`}>
+            } w-full lg:w-[400px] xl:w-[500px]`}>
 
             <div className="sticky top-32">
+
+              {/* 🆕 Botón de geolocalización, arriba del mapa */}
+              <div className="mb-3">
+                <LocationButton onLocationChange={setUserPosition} />
+              </div>
 
               <div className="h-[calc(100vh-200px)]">
 
@@ -276,7 +283,7 @@ export function HomeUsuarioLogueado() {
                     navigate(
                       `/booking/${service.id}`
                     )
-                  }
+                  } userPosition={userPosition}
                 />
 
               </div>

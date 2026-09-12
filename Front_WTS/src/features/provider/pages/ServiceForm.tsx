@@ -11,6 +11,7 @@ import { MapPin, Plus, Trash2 } from 'lucide-react';
 
 import { api } from '@/core/api/client';
 import { ImageCarousel } from '@/shared/components/catalog/ImageCarousel';
+import { LocationPicker } from '@/shared/components/catalog/LocationPicker'; // 🆕 Fase 3
 
 interface ServiceData {
   businessName?: string;
@@ -147,6 +148,15 @@ export function ServiceForm() {
       ...form,
       [e.target.name]: value,
     });
+  };
+
+  // 🆕 Fase 3: recibe lat/lng seleccionados en el LocationPicker
+  const handleLocationChange = (lat: string, lng: string) => {
+    setForm((currentForm) => ({
+      ...currentForm,
+      latitude: lat,
+      longitude: lng,
+    }));
   };
 
   const handleImageSelect = (
@@ -351,6 +361,22 @@ export function ServiceForm() {
                     name="location"
                     value={form.location}
                     onChange={handleChange}
+                  />
+
+                </div>
+
+                {/* 🆕 Fase 3: SELECCIONAR UBICACIÓN EN EL MAPA */}
+                <div>
+
+                  <Label className="flex items-center gap-2 mb-2">
+                    <MapPin className="h-4 w-4" />
+                    Ubicación exacta en el mapa
+                  </Label>
+
+                  <LocationPicker
+                    latitude={form.latitude}
+                    longitude={form.longitude}
+                    onLocationChange={handleLocationChange}
                   />
 
                 </div>

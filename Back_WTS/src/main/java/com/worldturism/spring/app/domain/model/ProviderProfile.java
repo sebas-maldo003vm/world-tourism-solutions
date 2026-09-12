@@ -57,6 +57,28 @@ public class ProviderProfile {
 	@Column(length = 300)
 	private String logoUrl;
 
+	@Column
+	private Double latitude;
+
+	public Double getLatitude() {
+		return latitude;
+	}
+
+	public void setLatitude(Double latitude) {
+		this.latitude = latitude;
+	}
+
+	public Double getLongitude() {
+		return longitude;
+	}
+
+	public void setLongitude(Double longitude) {
+		this.longitude = longitude;
+	}
+
+	@Column
+	private Double longitude;
+
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
 	private ServiceStatus status = ServiceStatus.PENDING;
