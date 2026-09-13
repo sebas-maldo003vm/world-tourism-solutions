@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
  * conversation_type = CATALOG_INQUIRY y subject = Asistente Virtual.
  */
 @Component
+@Profile("sqlite")
 @Order(45)
 public class SqliteConversationBotChatMigration implements ApplicationRunner {
 

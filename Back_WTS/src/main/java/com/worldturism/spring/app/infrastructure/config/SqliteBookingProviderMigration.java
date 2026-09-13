@@ -4,10 +4,12 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
+@Profile("sqlite")
 public class SqliteBookingProviderMigration implements ApplicationRunner {
 
 	private final JdbcTemplate jdbcTemplate;

@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
  * (provider_profile_id) en bookings, reviews, conversations e itinerary_items.
  */
 @Component
+@Profile("sqlite")
 @Order(100)
 public class SqliteDropServicesMigration implements ApplicationRunner {
 

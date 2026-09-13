@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
  * SCRUM-21: favorites.business_id → provider_profile_id (FK a provider_profiles).
  */
 @Component
+@Profile("sqlite")
 @Order(40)
 public class SqliteFavoriteProviderProfileMigration implements ApplicationRunner {
 
