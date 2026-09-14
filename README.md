@@ -38,8 +38,8 @@ El proyecto resuelve la fragmentación típica del sector (información dispersa
 La solución se organiza como **monorepo** con separación clara entre API y cliente web.
 
 ```
-Frontend (React + Vite)  →  API REST (Spring Boot)  →  SQLite
-     Puerto 5173                    Puerto 8080         worldturism.db
+Frontend (React + Vite)  →  API REST (Spring Boot)  →  PostgreSQL (Supabase)
+     Puerto 5173                    Puerto 8080         ddl-auto=validate
 ```
 
 ### Backend — `Back_WTS`
@@ -50,7 +50,7 @@ Frontend (React + Vite)  →  API REST (Spring Boot)  →  SQLite
 | **Spring Boot** | Framework de aplicación y servidor embebido |
 | **Spring Data JPA** | Persistencia y mapeo objeto-relacional |
 | **Spring Security + JWT** | Autenticación y autorización por roles |
-| **SQLite** | Base de datos embebida para desarrollo (`worldturism.db`) |
+| **PostgreSQL (Supabase)** | Base de datos. Hibernate valida el esquema (`ddl-auto=validate`) y no lo altera al arrancar |
 | **springdoc-openapi** | Documentación interactiva (Swagger UI) |
 
 Arquitectura interna (Clean Architecture):
@@ -62,7 +62,7 @@ Back_WTS/src/main/java/com/worldturism/spring/app/
 ├── infrastructure/
 │   ├── persistence/repository/   # Repositorios Spring Data
 │   ├── security/                 # JWT + filtros de seguridad
-│   ├── config/                   # CORS, OpenAPI, migraciones SQLite
+│   ├── config/                   # CORS y OpenAPI
 │   └── storage/                  # Almacenamiento de imágenes
 ├── presentation/
 │   ├── controller/               # Controladores REST
@@ -97,13 +97,12 @@ Front_WTS/src/
 
 ```
 world-tourism-solutions/
-├── Back_WTS/                 # API Spring Boot + SQLite
+├── Back_WTS/                 # API Spring Boot + PostgreSQL
 │   ├── src/main/java/        # Código fuente Java
-│   ├── src/main/resources/   # application.properties
+│   ├── src/main/resources/   # application.properties (conexión a la base)
 │   ├── uploads/              # Imágenes subidas en local
 │   ├── mvnw / mvnw.cmd       # Maven Wrapper
-│   ├── pom.xml
-│   └── worldturism.db        # Base SQLite (runtime)
+│   └── pom.xml
 ├── Front_WTS/                # Cliente React + TypeScript + Vite
 │   ├── src/
 │   ├── public/
@@ -117,7 +116,7 @@ world-tourism-solutions/
 
 ## 🗄️ 3. Modelo y Estructura de la Base de Datos
 
-### Esquema relacional actual (SQLite)
+### Esquema relacional actual (PostgreSQL)
 
 El dominio gira en torno a **usuarios** y **perfiles comerciales de proveedor**. Toda la oferta turística visible en catálogo vive en `provider_profiles`; el resto de tablas operativas se relacionan con ese agregado.
 
@@ -162,9 +161,9 @@ Se eliminó la duplicidad histórica entre “servicio turístico” y “perfil
 | Entidad/tabla `saved_services` (`SavedService`) | **Eliminada** |
 | Datos de negocio y oferta repartidos en dos modelos | Unificados en **`ProviderProfile`** → tabla `provider_profiles` |
 
-`ProviderProfile` concentra el nombre del negocio, descripción, categoría, ciudad, precio, estado de aprobación, rating agregado y el resto de atributos de la oferta visible en catálogo.
+`ProviderProfile` concentra el nombre del negocio, descripción, categoría, ciudad, precio, coordenadas, estado de aprobación, rating agregado y el resto de atributos de la oferta visible en catálogo.
 
-La migración automática `SqliteDropServicesMigration` elimina las tablas obsoletas y redirige las claves foráneas legacy hacia `provider_profiles.id`.
+El esquema vive en PostgreSQL. Ya no hay migraciones automáticas de SQLite al arrancar: las tablas `services` y `saved_services` no forman parte del modelo, y las claves foráneas apuntan a `provider_profiles.id`.
 
 #### Reestructuración de claves foráneas → `provider_profile_id`
 
@@ -176,9 +175,7 @@ Las entidades dependientes ya no apuntan a un `service_id`. Se vinculan **exclus
 | `conversations` | `Conversation` | `provider_profile_id` |
 | `reviews` | `Review` | `provider_profile_id` |
 | `itinerary_items` | `ItineraryItem` | `provider_profile_id` |
-| `favorites` | `Favorite` | `provider_profile_id` (antes `business_id`) |
-
-La migración `SqliteFavoriteProviderProfileMigration` renombra/reconstruye `favorites` para usar `provider_profile_id` con unicidad `(user_id, provider_profile_id)`.
+| `favorites` | `Favorite` | `provider_profile_id` (unicidad `user_id` + `provider_profile_id`) |
 
 #### Conversaciones: bot vs soporte humano
 
@@ -190,8 +187,6 @@ La migración `SqliteFavoriteProviderProfileMigration` renombra/reconstruye `fav
 | `assigned_advisor_id` | Asesor (`SUPPORT`/`ADMIN`) dueño del ticket; `null` mientras está en cola |
 | `SupportStatus.UNASSIGNED` | Ticket humano abierto sin asesor asignado |
 | Tipos | `CLIENT_TO_PROVIDER`, `CATALOG_INQUIRY`, `HUMAN_SUPPORT`, `CLIENT_TO_SUPPORT`, `PROVIDER_TO_SUPPORT` |
-
-Migraciones asociadas: `SqliteConversationBotChatMigration`, `SqliteConversationAssignedAdvisorMigration`.
 
 #### Galería de imágenes
 
@@ -338,7 +333,7 @@ Compilación sin tests (opcional):
 | Configuración | Valor |
 |---------------|-------|
 | Puerto | `8080` |
-| Base de datos | `Back_WTS/worldturism.db` (SQLite) |
+| Base de datos | PostgreSQL en Supabase (`application.properties`) |
 | API base | http://localhost:8080/api |
 | Swagger UI | http://localhost:8080/swagger-ui.html |
 | CORS | `http://localhost:5173` (también `3000` / `4200`) |
@@ -379,23 +374,19 @@ VITE_GOOGLE_MAPS_API_KEY=tu_clave_de_google_maps
 
 | Prioridad | Tarea | Objetivo |
 |-----------|-------|----------|
-| Alta | **Migración SQLite → PostgreSQL** | Soporte de producción, transacciones robustas y alta concurrencia |
-| Alta | **Consultas geoespaciales** | Búsqueda por coordenadas/ubicación (proximidad, mapas, filtrado territorial) |
+| Alta | **Consultas geoespaciales** | Búsqueda por proximidad (radio y distancia). Latitud y longitud ya se guardan y se muestran en el mapa |
 | Media | **Pasarela de pagos en línea** | Cobro y confirmación de reservas dentro de la plataforma |
 | Media | **Ampliación de pruebas** | Mayor cobertura unitaria e de integración en `Back_WTS` y `Front_WTS` |
 
 ### Detalle
 
-1. **PostgreSQL en producción**  
-   Sustituir SQLite por un motor relacional preparado para despliegues concurrentes, respaldos y escalado horizontal.
+1. **Búsqueda geoespacial**  
+   Latitud y longitud ya están en `provider_profiles` y el catálogo las usa en el mapa. Falta consultar por radio y ordenar por distancia (PostGIS u otra consulta espacial).
 
-2. **Búsqueda geoespacial**  
-   Incorporar latitud/longitud (o PostGIS) para consultas por radio, ordenamiento por distancia y mejor experiencia de descubrimiento.
-
-3. **Integración de pagos**  
+2. **Integración de pagos**  
    Conectar una pasarela (p. ej. Stripe, PayU u otra regional) al flujo de reservas/cotizaciones.
 
-4. **Calidad y pruebas**  
+3. **Calidad y pruebas**  
    Ampliar tests de dominio, controladores, contratos API y flujos críticos del frontend (auth, reservas, chat, itinerarios).
 
 ---
