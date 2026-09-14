@@ -42,6 +42,8 @@ public class ProviderBusinessManager {
 		profile.setCategory(request.category());
 		profile.setPrice(parsePrice(request.price()));
 		profile.setWebsite(request.website());
+		profile.setLatitude(parseCoordinate(request.latitude()));
+profile.setLongitude(parseCoordinate(request.longitude()));
 		profile.setLogoUrl(imageUrls.get(0));
 		profile.setImageUrls(imageUrls);
 		profile.setStatus(ServiceStatus.PENDING);
@@ -49,6 +51,16 @@ public class ProviderBusinessManager {
 
 		return ProviderResponse.from(providerProfileRepository.save(profile));
 	}
+	private Double parseCoordinate(String value) {
+    if (value == null || value.isBlank()) {
+        return null;
+    }
+    try {
+        return Double.parseDouble(value.trim());
+    } catch (NumberFormatException exception) {
+        throw new IllegalArgumentException("La coordenada debe tener un formato valido.");
+    }
+}
 
 	@Transactional(readOnly = true)
 	public List<ProviderResponse> listMyBusinesses(AppUser user) {
@@ -75,6 +87,8 @@ public class ProviderBusinessManager {
 		profile.setCategory(request.category());
 		profile.setPrice(parsePrice(request.price()));
 		profile.setWebsite(request.website());
+		profile.setLatitude(parseCoordinate(request.latitude()));
+profile.setLongitude(parseCoordinate(request.longitude()));
 
 		if (images != null && !images.isEmpty()) {
 			List<String> oldImageUrls = List.copyOf(profile.getImageUrls());
