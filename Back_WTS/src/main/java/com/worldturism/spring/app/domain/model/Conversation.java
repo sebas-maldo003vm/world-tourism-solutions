@@ -19,6 +19,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 @Entity
 @Table(name = "conversations")
 public class Conversation {
@@ -36,8 +39,9 @@ public class Conversation {
 	private Instant lastMessageAt;
 
 	@Enumerated(EnumType.STRING)
-	@Column(name = "conversation_type", nullable = false, length = 30)
-	private ConversationType conversationType = ConversationType.CLIENT_TO_PROVIDER;
+@JdbcTypeCode(SqlTypes.NAMED_ENUM)
+@Column(name = "conversation_type", nullable = false)
+private ConversationType conversationType = ConversationType.CLIENT_TO_PROVIDER;
 
 	@Enumerated(EnumType.STRING)
 	@Column(name = "support_status", length = 30)

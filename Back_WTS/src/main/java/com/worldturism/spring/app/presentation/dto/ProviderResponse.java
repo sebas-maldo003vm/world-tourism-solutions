@@ -19,7 +19,9 @@ public record ProviderResponse(
 		Integer totalReviews,
 		String website,
 		String logoUrl,
-		List<String> imageUrls) {
+		List<String> imageUrls,
+		Double latitude,
+		Double longitude) {
 
 	public static ProviderResponse from(ProviderProfile providerProfile) {
 		if (providerProfile == null) {
@@ -40,6 +42,8 @@ public record ProviderResponse(
 				providerProfile.getTotalReviews(),
 				providerProfile.getWebsite(),
 				providerProfile.getLogoUrl(),
-				new ArrayList<>(providerProfile.getImageUrls()));
+				new ArrayList<>(providerProfile.getImageUrls()),
+				providerProfile.getLatitude(),
+				providerProfile.getLongitude());
 	}
 }

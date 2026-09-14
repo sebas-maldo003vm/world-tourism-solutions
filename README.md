@@ -38,8 +38,8 @@ El proyecto resuelve la fragmentación típica del sector (información dispersa
 La solución se organiza como **monorepo** con separación clara entre API y cliente web.
 
 ```
-Frontend (React + Vite)  →  API REST (Spring Boot)  →  SQLite
-     Puerto 5173                    Puerto 8080         worldturism.db
+Frontend (React + Vite)  →  API REST (Spring Boot)  →  PostgreSQL + PostGIS (Supabase)
+     Puerto 5173                    Puerto 8080         ddl-auto=validate
 ```
 
 ### Backend — `Back_WTS`
@@ -50,7 +50,7 @@ Frontend (React + Vite)  →  API REST (Spring Boot)  →  SQLite
 | **Spring Boot** | Framework de aplicación y servidor embebido |
 | **Spring Data JPA** | Persistencia y mapeo objeto-relacional |
 | **Spring Security + JWT** | Autenticación y autorización por roles |
-| **SQLite** | Base de datos embebida para desarrollo (`worldturism.db`) |
+| **PostgreSQL (Supabase) + PostGIS** | Motor relacional con extensión geoespacial. Hibernate valida el esquema (`ddl-auto=validate`) y no lo altera al arrancar |
 | **springdoc-openapi** | Documentación interactiva (Swagger UI) |
 
 Arquitectura interna (Clean Architecture):
@@ -62,7 +62,7 @@ Back_WTS/src/main/java/com/worldturism/spring/app/
 ├── infrastructure/
 │   ├── persistence/repository/   # Repositorios Spring Data
 │   ├── security/                 # JWT + filtros de seguridad
-│   ├── config/                   # CORS, OpenAPI, migraciones SQLite
+│   ├── config/                   # CORS y OpenAPI
 │   └── storage/                  # Almacenamiento de imágenes
 ├── presentation/
 │   ├── controller/               # Controladores REST
@@ -97,13 +97,12 @@ Front_WTS/src/
 
 ```
 world-tourism-solutions/
-├── Back_WTS/                 # API Spring Boot + SQLite
+├── Back_WTS/                 # API Spring Boot + PostgreSQL
 │   ├── src/main/java/        # Código fuente Java
-│   ├── src/main/resources/   # application.properties
+│   ├── src/main/resources/   # application.properties (conexión a la base)
 │   ├── uploads/              # Imágenes subidas en local
 │   ├── mvnw / mvnw.cmd       # Maven Wrapper
-│   ├── pom.xml
-│   └── worldturism.db        # Base SQLite (runtime)
+│   └── pom.xml
 ├── Front_WTS/                # Cliente React + TypeScript + Vite
 │   ├── src/
 │   ├── public/
@@ -117,16 +116,77 @@ world-tourism-solutions/
 
 ## 🗄️ 3. Modelo y Estructura de la Base de Datos
 
-### Esquema relacional actual (SQLite)
+El esquema vive en **PostgreSQL** (Supabase). Hibernate opera en modo `ddl-auto=validate`: contrasta el mapeo JPA con el catálogo existente y **no crea, altera ni migra** tablas al arrancar. La integridad de dominio, la geolocalización y las claves foráneas se garantizan en el motor, no en convenciones de la aplicación.
+
+### Motor relacional y extensión geoespacial (PostGIS)
+
+El clúster tiene habilitada la extensión **PostGIS**. Sobre ella se modela la posición de cada oferta comercial, de modo que las búsquedas por distancia puedan resolverse en el índice espacial y no con cálculos haversine en la API.
+
+`provider_profiles` conserva las coordenadas de entrada (`latitude`, `longitude`) y una columna geográfica nativa, no escribible desde JPA:
+
+| Columna | Tipo PostgreSQL | Origen | Rol |
+|---------|-----------------|--------|-----|
+| `latitude` | `DOUBLE PRECISION` | Persistida por la API | Coordenada de entrada (WGS 84) |
+| `longitude` | `DOUBLE PRECISION` | Persistida por la API | Coordenada de entrada (WGS 84) |
+| `location` | `geography(Point, 4326)` | **Autogenerada** a partir de `latitude` y `longitude` | Punto geográfico nativo para distancia y radio |
+
+```
+provider_profiles
+    latitude  ──┐
+                ├──►  location  geography(Point, 4326)   [generada, SRID 4326 / WGS 84]
+    longitude ──┘              │
+                               └── índice espacial GIST
+                                     (distancia y búsqueda por radio)
+```
+
+- **SRID 4326** fija el sistema de referencia en WGS 84 (latitud/longitud geodésicas). El tipo `geography` calcula distancias sobre el elipsoide, en metros, sin proyección intermedia.
+- La columna `location` **no es un campo de la entidad JPA**. La aplicación escribe `latitude` y `longitude`; PostgreSQL deriva el punto.
+- Sobre `location` existe un **índice espacial GIST** (*Generalized Search Tree*). Ese índice es el que hace viable `ST_DWithin` / `ST_Distance` a escala de catálogo. La infraestructura de base de datos para proximidad está desplegada; la exposición REST de esa consulta sigue pendiente (ver [Roadmap](#-6-roadmap-y-tareas-pendientes-todos)).
+
+### Integridad de dominio: tipos ENUM nativos
+
+El catálogo define **6 tipos `ENUM` nativos de PostgreSQL**. Un valor fuera del dominio es rechazado por el motor, no solo por la capa Java. Los ejemplos de gobierno del sistema son `users.role` y `provider_profiles.status`.
+
+| Columna | Tipo / dominio | Valores admitidos |
+|---------|----------------|-------------------|
+| `users.role` | ENUM nativo | `BOT`, `ADMIN`, `USER`, `PROVIDER`, `SUPPORT` |
+| `provider_profiles.status` | `service_status_enum` | `PENDING`, `APPROVED`, `REJECTED`, `INACTIVE` |
+| `bookings.status` | ENUM nativo | `PENDING`, `APPROVED`, `REJECTED`, `CANCELLED`, `COMPLETED` |
+| `conversations.conversation_type` | ENUM nativo | `CLIENT_TO_PROVIDER`, `CATALOG_INQUIRY`, `HUMAN_SUPPORT`, `CLIENT_TO_SUPPORT`, `PROVIDER_TO_SUPPORT` |
+| `conversations.support_status` | ENUM nativo | `UNASSIGNED`, `OPEN`, `IN_PROGRESS`, `NEEDS_HUMAN_SUPPORT`, `RESOLVED`, `CLOSED` |
+| `conversations.urgency` | ENUM nativo | `LOW`, `MEDIUM`, `HIGH` |
+
+`provider_profiles.status` se mapea en JPA con `JdbcTypeCode(NAMED_ENUM)` y `columnDefinition = service_status_enum`. El resto de columnas enumeradas persisten el literal del enum Java (`EnumType.STRING`) contra el tipo nativo correspondiente. No se usan `VARCHAR` ni *check constraints* como sustituto de estos seis dominios.
+
+### Tipos de datos y mapeo estricto
+
+Los tipos de la aplicación se alinean con tipos nativos de SQL, sin cadenas ni épocas numéricas como sustituto:
+
+| Concepto | Tipo PostgreSQL | Mapeo Java | Columnas representativas |
+|----------|-----------------|------------|--------------------------|
+| Identificador | `BIGINT` autogenerado (`BIGSERIAL` / `GENERATED … AS IDENTITY`) | `Long` + `GenerationType.IDENTITY` | `id` de todas las tablas |
+| Estampa de tiempo | `TIMESTAMPTZ` | `Instant` | `users.created_at`, `users.updated_at`, `messages.sent_at`, `bookings.created_at`, `conversations.last_message_at`, `favorites.saved_at` |
+| Fecha | `DATE` | `LocalDate` | `bookings.booking_date`, `itineraries.start_date`, `itineraries.end_date`, `itinerary_items.scheduled_date` |
+| Horario | `TIME` | `LocalTime` | `bookings.start_time`, `bookings.end_time` |
+| Moneda / precio | `NUMERIC(10,2)` | `BigDecimal` (`precision = 10`, `scale = 2`) | `provider_profiles.price`, `bookings.total_price` |
+| Punto geográfico | `geography(Point, 4326)` | No mapeado (columna generada) | `provider_profiles.location` |
+
+`TIMESTAMPTZ` conserva la zona horaria en el almacenamiento (UTC en la práctica de la API). `NUMERIC(10,2)` evita el error de redondeo de `DOUBLE PRECISION` en importes. Los identificadores no se generan en la aplicación: los asigna PostgreSQL.
+
+### Esquema relacional actual
 
 El dominio gira en torno a **usuarios** y **perfiles comerciales de proveedor**. Toda la oferta turística visible en catálogo vive en `provider_profiles`; el resto de tablas operativas se relacionan con ese agregado.
 
 ```
 users (1) ──< (N) provider_profiles
                     │
+                    │  latitude + longitude → location geography(Point, 4326) [GIST]
+                    │
                     ├──< (N) provider_profile_images
                     ├──< (N) bookings ── (0..1) reviews
                     ├──< (N) conversations ──< (N) messages
+                    │         │                    ├── conversation_id → conversations(id)
+                    │         │                    └── sender_id        → users(id)
                     │         └── assigned_advisor_id → users (asesor SUPPORT/ADMIN)
                     ├──< (N) reviews
                     ├──< (N) favorites
@@ -137,16 +197,18 @@ users (1) ──< (N) provider_profiles
 
 | Origen | Destino | Cardinalidad | Clave foránea |
 |--------|---------|--------------|---------------|
-| `users` | `provider_profiles` | 1:N | `user_id` |
-| `provider_profiles` | `provider_profile_images` | 1:N | `provider_profile_id` |
-| `users` / `provider_profiles` | `bookings` | N:1 / N:1 | `user_id`, `provider_profile_id` |
-| `users` / `provider_profiles` | `conversations` | N:1 / N:1 | `user_id`, `provider_profile_id` |
-| `users` | `conversations` (asesor) | 1:N | `assigned_advisor_id` |
-| `conversations` | `messages` | 1:N | `conversation_id` |
-| `users` / `provider_profiles` | `reviews` | N:1 / N:1 | `user_id`, `provider_profile_id` |
-| `users` | `itineraries` | 1:N | `user_id` |
-| `itineraries` / `provider_profiles` | `itinerary_items` | 1:N / N:1 | `itinerary_id`, `provider_profile_id` |
-| `users` / `provider_profiles` | `favorites` | N:1 / N:1 | `user_id`, `provider_profile_id` |
+| `users` | `provider_profiles` | 1:N | `user_id` → `users(id)` |
+| `provider_profiles` | `provider_profile_images` | 1:N | `provider_profile_id` → `provider_profiles(id)` |
+| `users` / `provider_profiles` | `bookings` | N:1 / N:1 | `user_id` → `users(id)`, `provider_profile_id` → `provider_profiles(id)` |
+| `users` / `provider_profiles` | `conversations` | N:1 / N:1 | `user_id` → `users(id)`, `provider_profile_id` → `provider_profiles(id)` |
+| `users` | `conversations` (asesor) | 1:N | `assigned_advisor_id` → `users(id)` |
+| `conversations` | `messages` | 1:N | `conversation_id` → `conversations(id)` |
+| `users` | `messages` (emisor) | 1:N | `sender_id` → `users(id)` |
+| `users` / `provider_profiles` | `reviews` | N:1 / N:1 | `user_id` → `users(id)`, `provider_profile_id` → `provider_profiles(id)` |
+| `bookings` | `reviews` | 1:0..1 | `booking_id` → `bookings(id)` |
+| `users` | `itineraries` | 1:N | `user_id` → `users(id)` |
+| `itineraries` / `provider_profiles` | `itinerary_items` | 1:N / N:1 | `itinerary_id` → `itineraries(id)`, `provider_profile_id` → `provider_profiles(id)` |
+| `users` / `provider_profiles` | `favorites` | N:1 / N:1 | `user_id` → `users(id)`, `provider_profile_id` → `provider_profiles(id)` |
 
 ---
 
@@ -162,9 +224,9 @@ Se eliminó la duplicidad histórica entre “servicio turístico” y “perfil
 | Entidad/tabla `saved_services` (`SavedService`) | **Eliminada** |
 | Datos de negocio y oferta repartidos en dos modelos | Unificados en **`ProviderProfile`** → tabla `provider_profiles` |
 
-`ProviderProfile` concentra el nombre del negocio, descripción, categoría, ciudad, precio, estado de aprobación, rating agregado y el resto de atributos de la oferta visible en catálogo.
+`ProviderProfile` concentra el nombre del negocio, descripción, categoría, ciudad, precio (`NUMERIC(10,2)`), coordenadas de entrada, estado de aprobación (`service_status_enum`) y rating agregado. El punto PostGIS `location` lo deriva el motor; no forma parte del agregado escribible.
 
-La migración automática `SqliteDropServicesMigration` elimina las tablas obsoletas y redirige las claves foráneas legacy hacia `provider_profiles.id`.
+El esquema vive en PostgreSQL. Ya no hay migraciones automáticas de SQLite al arrancar: las tablas `services` y `saved_services` no forman parte del modelo, y las claves foráneas apuntan a `provider_profiles.id`.
 
 #### Reestructuración de claves foráneas → `provider_profile_id`
 
@@ -176,22 +238,39 @@ Las entidades dependientes ya no apuntan a un `service_id`. Se vinculan **exclus
 | `conversations` | `Conversation` | `provider_profile_id` |
 | `reviews` | `Review` | `provider_profile_id` |
 | `itinerary_items` | `ItineraryItem` | `provider_profile_id` |
-| `favorites` | `Favorite` | `provider_profile_id` (antes `business_id`) |
+| `favorites` | `Favorite` | `provider_profile_id` (unicidad `user_id` + `provider_profile_id`) |
 
-La migración `SqliteFavoriteProviderProfileMigration` renombra/reconstruye `favorites` para usar `provider_profile_id` con unicidad `(user_id, provider_profile_id)`.
+#### Integridad referencial
+
+Todas las tablas operativas declaran **`FOREIGN KEY` explícitas**. No hay relaciones “lógicas” solo en JPA. El caso de mensajería queda cerrado en ambos extremos del mensaje:
+
+| Tabla | Columna | Referencia |
+|-------|---------|------------|
+| `messages` | `conversation_id` | `conversations(id)` |
+| `messages` | `sender_id` | `users(id)` |
+| `conversations` | `user_id` | `users(id)` |
+| `conversations` | `provider_profile_id` | `provider_profiles(id)` |
+| `conversations` | `assigned_advisor_id` | `users(id)` |
+| `bookings` | `user_id`, `provider_profile_id` | `users(id)`, `provider_profiles(id)` |
+| `reviews` | `user_id`, `provider_profile_id`, `booking_id` | `users(id)`, `provider_profiles(id)`, `bookings(id)` |
+| `favorites` | `user_id`, `provider_profile_id` | `users(id)`, `provider_profiles(id)` |
+| `itinerary_items` | `itinerary_id`, `provider_profile_id` | `itineraries(id)`, `provider_profiles(id)` |
+| `provider_profile_images` | `provider_profile_id` | `provider_profiles(id)` |
+| `provider_profiles` | `user_id` | `users(id)` |
+| `itineraries` | `user_id` | `users(id)` |
+
+Restricciones de unicidad además de la PK: `favorites (user_id, provider_profile_id)`, `reviews (booking_id)` y `reviews (user_id, provider_profile_id)`.
 
 #### Conversaciones: bot vs soporte humano
 
-`Conversation` distingue sesiones del asistente y tickets humanos:
+`Conversation` distingue sesiones del asistente y tickets humanos. **No existe una columna `is_bot_chat`**: la sesión del asistente se identifica por `conversation_type = CATALOG_INQUIRY` o por el subject del bot. El DTO expone `isBotChat` como derivado de esa regla.
 
 | Campo / concepto | Descripción |
 |------------------|-------------|
-| `is_bot_chat` | `true` en sesiones del asistente virtual; se excluyen del inbox ADMIN/SUPPORT y del chat comercial |
-| `assigned_advisor_id` | Asesor (`SUPPORT`/`ADMIN`) dueño del ticket; `null` mientras está en cola |
-| `SupportStatus.UNASSIGNED` | Ticket humano abierto sin asesor asignado |
-| Tipos | `CLIENT_TO_PROVIDER`, `CATALOG_INQUIRY`, `HUMAN_SUPPORT`, `CLIENT_TO_SUPPORT`, `PROVIDER_TO_SUPPORT` |
-
-Migraciones asociadas: `SqliteConversationBotChatMigration`, `SqliteConversationAssignedAdvisorMigration`.
+| Sesión bot | `CATALOG_INQUIRY` o subject del asistente; se excluye del inbox ADMIN/SUPPORT y del chat comercial |
+| `assigned_advisor_id` | `FOREIGN KEY` a `users(id)`. Asesor (`SUPPORT`/`ADMIN`) dueño del ticket; `null` mientras está en cola |
+| `support_status` | ENUM nativo. `UNASSIGNED` = ticket humano abierto sin asesor asignado |
+| `conversation_type` | ENUM nativo: `CLIENT_TO_PROVIDER`, `CATALOG_INQUIRY`, `HUMAN_SUPPORT`, `CLIENT_TO_SUPPORT`, `PROVIDER_TO_SUPPORT` |
 
 #### Galería de imágenes
 
@@ -213,12 +292,12 @@ provider_profiles (1) ──< (N) provider_profile_images
 
 | Tabla | Entidad JPA | Descripción |
 |-------|-------------|-------------|
-| `users` | `AppUser` | Cuentas del sistema (credenciales, rol, estado activo, datos de contacto) |
-| `provider_profiles` | `ProviderProfile` | Perfil/negocio/oferta comercial del proveedor (núcleo del catálogo) |
+| `users` | `AppUser` | Cuentas del sistema. `role` es ENUM nativo (`BOT`, `ADMIN`, `USER`, `PROVIDER`, `SUPPORT`); estampas en `TIMESTAMPTZ` |
+| `provider_profiles` | `ProviderProfile` | Oferta comercial del proveedor. Precio `NUMERIC(10,2)`, estado `service_status_enum`, punto generado `location` con índice GIST |
 | `provider_profile_images` | `ProviderProfileImage` | Galería multimedia asociada a cada perfil |
-| `bookings` | `Booking` | Reservas/cotizaciones ligadas a un perfil y a un usuario |
-| `conversations` | `Conversation` | Hilos de chat (cliente–proveedor, soporte humano o bot); incluye `is_bot_chat` y `assigned_advisor` |
-| `messages` | `Message` | Mensajes individuales dentro de una conversación |
+| `bookings` | `Booking` | Reservas/cotizaciones: `DATE` + `TIME`, total `NUMERIC(10,2)`, estado ENUM nativo |
+| `conversations` | `Conversation` | Hilos de chat (cliente–proveedor, soporte humano o bot). Tipo, estado de soporte y urgencia son ENUM nativos; `assigned_advisor_id` es FK a `users` |
+| `messages` | `Message` | Mensajes del hilo. FK explícitas: `conversation_id` → `conversations(id)`, `sender_id` → `users(id)`; `sent_at` en `TIMESTAMPTZ` |
 | `reviews` | `Review` | Valoraciones y comentarios sobre un perfil (asociables a una reserva) |
 | `itineraries` | `Itinerary` | Planes de viaje creados por el usuario |
 | `itinerary_items` | `ItineraryItem` | Ítems del itinerario vinculados a un `provider_profile` |
@@ -242,13 +321,14 @@ provider_profiles (1) ──< (N) provider_profile_images
 
 - Alta, edición y moderación de perfiles comerciales (`ProviderProfile`)
 - Galería multimedial con múltiples imágenes ordenadas
-- Estados de publicación/aprobación del servicio
-- Catálogo público consultable por turistas
+- Estado de aprobación gobernado por el ENUM nativo `service_status_enum`: `PENDING`, `APPROVED`, `REJECTED`, `INACTIVE`
+- Coordenadas de entrada (`latitude`, `longitude`) y punto PostGIS generado (`location`) con índice GIST, listo para distancia y radio
+- Catálogo público consultable por turistas (filtro por ciudad/dirección y visualización en mapa; la búsqueda por radio en API está pendiente)
 
 ### Sistema de reservas y cotizaciones
 
-- Solicitud de reserva asociada a un perfil de proveedor
-- Control de estado del ciclo de vida (p. ej. pendiente, confirmada, cancelada)
+- Solicitud de reserva asociada a un perfil de proveedor (`provider_profile_id`)
+- Ciclo de vida sobre el ENUM nativo `bookings.status`: `PENDING`, `APPROVED`, `REJECTED`, `CANCELLED`, `COMPLETED`
 - Panel del proveedor para gestionar solicitudes entrantes
 - Cálculo de precio total según personas y oferta
 
@@ -269,7 +349,7 @@ provider_profiles (1) ──< (N) provider_profile_images
 | **Cola de soporte** | Estado inicial `UNASSIGNED`; tipo `HUMAN_SUPPORT` (también legacy `CLIENT_TO_SUPPORT` / `PROVIDER_TO_SUPPORT`) |
 | **Asignación** | Asesor reclama el ticket (`PUT /api/support/conversations/{id}/assign`) → `IN_PROGRESS` + `assigned_advisor` |
 | **Inbox staff** | `GET /api/support/conversations/inbox` — sin asignar o asignados al asesor autenticado |
-| **Sesiones bot persistentes** | Marcadas con `is_bot_chat = true`; no aparecen en paneles de soporte ni chats comerciales |
+| **Sesiones bot persistentes** | Identificadas por `conversation_type` / subject (no hay columna `is_bot_chat`); el DTO deriva `isBotChat`. No aparecen en paneles de soporte ni chats comerciales |
 
 ### Favoritos (turista)
 
@@ -338,7 +418,7 @@ Compilación sin tests (opcional):
 | Configuración | Valor |
 |---------------|-------|
 | Puerto | `8080` |
-| Base de datos | `Back_WTS/worldturism.db` (SQLite) |
+| Base de datos | PostgreSQL en Supabase (`application.properties`) |
 | API base | http://localhost:8080/api |
 | Swagger UI | http://localhost:8080/swagger-ui.html |
 | CORS | `http://localhost:5173` (también `3000` / `4200`) |
@@ -379,23 +459,19 @@ VITE_GOOGLE_MAPS_API_KEY=tu_clave_de_google_maps
 
 | Prioridad | Tarea | Objetivo |
 |-----------|-------|----------|
-| Alta | **Migración SQLite → PostgreSQL** | Soporte de producción, transacciones robustas y alta concurrencia |
-| Alta | **Consultas geoespaciales** | Búsqueda por coordenadas/ubicación (proximidad, mapas, filtrado territorial) |
+| Alta | **Consultas geoespaciales** | Infraestructura de base de datos **100% desplegada** (PostGIS, `location`, índice GIST). Pendiente solo la API REST de búsqueda por radio |
 | Media | **Pasarela de pagos en línea** | Cobro y confirmación de reservas dentro de la plataforma |
 | Media | **Ampliación de pruebas** | Mayor cobertura unitaria e de integración en `Back_WTS` y `Front_WTS` |
 
 ### Detalle
 
-1. **PostgreSQL en producción**  
-   Sustituir SQLite por un motor relacional preparado para despliegues concurrentes, respaldos y escalado horizontal.
+1. **Búsqueda geoespacial**  
+   La capa de persistencia ya está lista y **no es trabajo pendiente**: extensión PostGIS habilitada, columna generada `provider_profiles.location` (`geography(Point, 4326)`) e índice espacial GIST sobre `location`. Latitud y longitud se persisten y el catálogo las muestra en el mapa. Queda únicamente integrar en el backend los endpoints REST de búsqueda por radio de proximidad (y ordenación por distancia) sobre ese índice.
 
-2. **Búsqueda geoespacial**  
-   Incorporar latitud/longitud (o PostGIS) para consultas por radio, ordenamiento por distancia y mejor experiencia de descubrimiento.
-
-3. **Integración de pagos**  
+2. **Integración de pagos**  
    Conectar una pasarela (p. ej. Stripe, PayU u otra regional) al flujo de reservas/cotizaciones.
 
-4. **Calidad y pruebas**  
+3. **Calidad y pruebas**  
    Ampliar tests de dominio, controladores, contratos API y flujos críticos del frontend (auth, reservas, chat, itinerarios).
 
 ---

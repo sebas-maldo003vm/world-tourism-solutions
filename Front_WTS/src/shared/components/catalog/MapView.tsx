@@ -1,6 +1,83 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-
+import { useEffect, useMemo } from 'react';
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  Circle,
+  useMap,
+} from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { Card } from '@/shared/components/ui/card';
+
+// Fix: Vite no resuelve los iconos por defecto de Leaflet automáticamente
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerShadow from 'leaflet/dist/images/marker-shadow.png';
+
+// ============================================================
+// 🧪 DATOS TEMPORALES DE PRUEBA
+// ============================================================
+// ESTE BLOQUE ES TEMPORAL.
+//
+// Se utiliza únicamente para comprobar que:
+// - Leaflet funciona
+// - Los markers funcionan
+// - Las coordenadas funcionan
+// - Los Popup funcionan
+//
+// CUANDO CONECTEMOS EL BACKEND:
+// ❌ ELIMINAR ESTE BLOQUE COMPLETO
+// ============================================================
+
+const testServices: MapService[] = [
+  {
+    id: 'test-1',
+    name: 'Servicio de prueba',
+    location: 'Bogotá',
+    latitude: 4.711,
+    longitude: -74.0721,
+  },
+];
+
+// ============================================================
+// ICONO DE LEAFLET
+// ============================================================
+
+const defaultIcon = L.icon({
+  iconRetinaUrl: markerIcon2x,
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
+// ============================================================
+// 🆕 ICONO DEL USUARIO (Fase 2 - Geolocalización)
+// ============================================================
+// Un punto azul simple, no necesita imágenes extra.
+// Sirve para diferenciar visualmente "yo estoy aquí" de los
+// markers de servicios (que usan defaultIcon).
+// ============================================================
+
+const userIcon = L.divIcon({
+  className: '', // evita estilos default de Leaflet
+  html: `
+    <div style="
+      width: 16px;
+      height: 16px;
+      background: #3b82f6;
+      border: 3px solid white;
+      border-radius: 50%;
+      box-shadow: 0 0 4px rgba(0,0,0,0.4);
+    "></div>
+  `,
+  iconSize: [16, 16],
+  iconAnchor: [8, 8],
+});
 
 interface MapService {
   id: string;
@@ -14,74 +91,115 @@ interface MapService {
   longitude?: number | string;
 }
 
+// ============================================================
+// 🆕 TIPO PARA LA UBICACIÓN DEL USUARIO (Fase 2)
+// ============================================================
+
+interface UserPosition {
+  lat: number;
+  lng: number;
+  accuracy?: number; // radio de error en metros, si está disponible
+}
+
 interface MapViewProps {
   services: MapService[];
   onServiceClick?: (service: MapService) => void;
+  userPosition?: UserPosition | null; // 🆕 Fase 2 - opcional, no rompe usos anteriores
 }
 
-const GOOGLE_MAPS_SCRIPT_ID = 'google-maps-script';
-const DEFAULT_CENTER = { lat: 4.711, lng: -74.0721 };
-
-function loadGoogleMaps(apiKey: string) {
-  if ((window as any).google?.maps) {
-    return Promise.resolve((window as any).google);
-  }
-
-  const existingScript = document.getElementById(
-    GOOGLE_MAPS_SCRIPT_ID
-  ) as HTMLScriptElement | null;
-
-  if (existingScript) {
-    return new Promise((resolve, reject) => {
-      existingScript.addEventListener('load', () => {
-        resolve((window as any).google);
-      });
-      existingScript.addEventListener('error', reject);
-    });
-  }
-
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.id = GOOGLE_MAPS_SCRIPT_ID;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => resolve((window as any).google);
-    script.onerror = reject;
-
-    document.head.appendChild(script);
-  });
-}
+const DEFAULT_CENTER: [number, number] = [4.711, -74.0721]; // Bogotá
 
 function toNumber(value?: number | string) {
-  if (value === undefined || value === null || value === '') {
+  if (value === undefined || value === null || value === '') return null;
+
+  const n = Number(value);
+
+  return Number.isFinite(n) ? n : null;
+}
+
+function getServicePosition(
+  service: MapService
+): [number, number] | null {
+  const lat = toNumber(
+    service.lat ?? service.latitude
+  );
+
+  const lng = toNumber(
+    service.lng ?? service.longitude
+  );
+
+  if (
+    lat === null ||
+    lng === null ||
+    (lat === 0 && lng === 0)
+  ) {
     return null;
   }
 
-  const numberValue = Number(value);
-
-  return Number.isFinite(numberValue) ? numberValue : null;
+  return [lat, lng];
 }
 
-function getServicePosition(service: MapService) {
-  const lat = toNumber(service.lat ?? service.latitude);
-  const lng = toNumber(service.lng ?? service.longitude);
+// Ajusta el mapa a los markers disponibles
+// (reemplaza la lógica de fitBounds de Google Maps)
+// 🆕 Fase 2: ahora también toma en cuenta la posición del usuario, si existe
+function FitBounds({
+  positions,
+  userPosition,
+}: {
+  positions: [number, number][];
+  userPosition?: UserPosition | null;
+}) {
+  const map = useMap();
 
-  if (lat === null || lng === null || (lat === 0 && lng === 0)) {
-    return null;
-  }
+  useEffect(() => {
+    const allPoints: [number, number][] = [...positions];
 
-  return { lat, lng };
+    if (userPosition) {
+      allPoints.push([userPosition.lat, userPosition.lng]);
+    }
+
+    if (allPoints.length === 0) return;
+
+    if (allPoints.length === 1) {
+      map.setView(allPoints[0], 14);
+    } else {
+      map.fitBounds(
+        L.latLngBounds(allPoints),
+        { padding: [40, 40] }
+      );
+    }
+  }, [map, positions, userPosition]);
+
+  return null;
 }
 
-export function MapView({ services, onServiceClick }: MapViewProps) {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
-  const [mapError, setMapError] = useState('');
+export function MapView({
+  services,
+  onServiceClick,
+  userPosition, // 🆕
+}: MapViewProps) {
 
-  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
+  // ==========================================================
+  // 🔴 BLOQUE ORIGINAL — DATOS REALES DEL BACKEND
+  // ==========================================================
+  //
+  // ESTE ES EL BLOQUE QUE YA TENÍAS.
+  //
+  // Lo dejamos comentado TEMPORALMENTE porque todavía
+  // no tenemos configurados los servicios con coordenadas
+  // reales en nuestra BD.
+  //
+  // CUANDO EL BACKEND ESTÉ LISTO:
+  //
+  // 1. Elimina el bloque 🧪 testServices de arriba.
+  //
+  // 2. Comenta/elimina el bloque 🟡 de prueba.
+  //
+  // 3. Descomenta ESTE bloque.
+  //
+  // ==========================================================
 
+  
   const servicesWithPosition = useMemo(
     () =>
       services
@@ -89,86 +207,150 @@ export function MapView({ services, onServiceClick }: MapViewProps) {
           service,
           position: getServicePosition(service),
         }))
-        .filter((item) => item.position),
+        .filter(
+          (
+            item
+          ): item is {
+            service: MapService;
+            position: [number, number];
+          } => item.position !== null
+        ),
     [services]
   );
+  
 
-  useEffect(() => {
-    if (!apiKey) {
-      setMapError('Configura VITE_GOOGLE_MAPS_API_KEY para usar Google Maps.');
-      return;
-    }
 
-    let isMounted = true;
+  // ==========================================================
+  // 🟡 BLOQUE TEMPORAL — SERVICIO DE PRUEBA
+  // ==========================================================
+  //
+  // ESTE BLOQUE ESTÁ ACTIVO AHORA.
+  //
+  // Sirve para comprobar que Leaflet puede recibir
+  // un servicio con latitude + longitude y dibujar
+  // correctamente su Marker.
+  //
+  // CUANDO TODO ESTÉ CONECTADO:
+  //
+  // ❌ ELIMINAR ESTE BLOQUE
+  //
+  // ✅ DESCOMENTAR EL BLOQUE 🔴 DE ARRIBA
+  //
+  // ==========================================================
+/*
+  const servicesWithPosition = useMemo(
+    () =>
+      testServices
+        .map((service) => ({
+          service,
+          position: getServicePosition(service),
+        }))
+        .filter(
+          (
+            item
+          ): item is {
+            service: MapService;
+            position: [number, number];
+          } => item.position !== null
+        ),
+    []
+  );
+*/
+  // ==========================================================
+  // POSICIONES DE LOS SERVICIOS
+  // ==========================================================
 
-    loadGoogleMaps(apiKey)
-      .then((google: any) => {
-        if (!isMounted || !mapRef.current) {
-          return;
-        }
+  const positions = useMemo(
+    () =>
+      servicesWithPosition.map(
+        (s) => s.position
+      ),
+    [servicesWithPosition]
+  );
 
-        const center = servicesWithPosition[0]?.position || DEFAULT_CENTER;
-
-        if (!mapInstanceRef.current) {
-          mapInstanceRef.current = new google.maps.Map(mapRef.current, {
-            center,
-            zoom: servicesWithPosition.length ? 12 : 6,
-            mapTypeControl: false,
-            streetViewControl: false,
-            fullscreenControl: false,
-          });
-        }
-
-        const map = mapInstanceRef.current;
-        const bounds = new google.maps.LatLngBounds();
-
-        markersRef.current.forEach((marker) => marker.setMap(null));
-        markersRef.current = [];
-
-        servicesWithPosition.forEach(({ service, position }) => {
-          const marker = new google.maps.Marker({
-            position,
-            map,
-            title: service.name,
-          });
-
-          marker.addListener('click', () => {
-            onServiceClick?.(service);
-          });
-
-          markersRef.current.push(marker);
-          bounds.extend(position);
-        });
-
-        if (servicesWithPosition.length > 1) {
-          map.fitBounds(bounds);
-        } else if (servicesWithPosition.length === 1) {
-          map.setCenter(center);
-          map.setZoom(14);
-        }
-
-        setMapError('');
-      })
-      .catch(() => {
-        if (isMounted) {
-          setMapError('No se pudo cargar Google Maps.');
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [apiKey, onServiceClick, servicesWithPosition]);
+  // ==========================================================
+  // MAPA
+  // ==========================================================
 
   return (
     <Card className="h-full overflow-hidden relative bg-gray-100">
-      <div ref={mapRef} className="h-full w-full" />
 
-      {mapError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-white p-6 text-center text-sm text-gray-600">
-          {mapError}
-        </div>
-      )}
+      <MapContainer
+        center={DEFAULT_CENTER}
+        zoom={servicesWithPosition.length ? 12 : 6}
+        style={{
+          height: '100%',
+          width: '100%',
+        }}
+        scrollWheelZoom
+      >
+
+        {/* ====================================================
+            OPENSTREETMAP
+            ==================================================== */}
+
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        {/* ====================================================
+            MARKERS
+            ==================================================== */}
+
+        {servicesWithPosition.map(
+          ({ service, position }) => (
+            <Marker
+              key={service.id}
+              position={position}
+              icon={defaultIcon}
+              eventHandlers={{
+                click: () =>
+                  onServiceClick?.(service),
+              }}
+            >
+              <Popup>
+                {service.name}
+              </Popup>
+            </Marker>
+          )
+        )}
+
+        {/* ====================================================
+            🆕 MARCADOR DEL USUARIO (Fase 2)
+            Solo se dibuja si userPosition fue pasado como prop.
+            ==================================================== */}
+
+        {userPosition && (
+          <>
+            <Marker
+              position={[userPosition.lat, userPosition.lng]}
+              icon={userIcon}
+            >
+              <Popup>Tu ubicación</Popup>
+            </Marker>
+
+            {userPosition.accuracy && (
+              <Circle
+                center={[userPosition.lat, userPosition.lng]}
+                radius={userPosition.accuracy}
+                pathOptions={{ color: '#3b82f6', fillOpacity: 0.1 }}
+              />
+            )}
+          </>
+        )}
+
+        {/* ====================================================
+            AJUSTAR MAPA A LOS MARKERS
+            ==================================================== */}
+
+        <FitBounds
+          positions={positions}
+          userPosition={userPosition}
+        />
+
+      </MapContainer>
+
     </Card>
   );
 }
