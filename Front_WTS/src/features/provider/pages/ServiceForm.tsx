@@ -9,7 +9,12 @@ import { Textarea } from '@/shared/components/ui/textarea';
 
 import { MapPin, Plus, Trash2 } from 'lucide-react';
 
-import { api } from '@/core/api/client';
+import { api, API_ORIGIN } from '@/core/api/client';
+import { assertImageFile } from '@/core/storage/supabaseStorage.service';
+import {
+  providerBusinessApi,
+  uploadServiceGallery,
+} from '@/features/provider/services/providerBusinessApi';
 import { ImageCarousel } from '@/shared/components/catalog/ImageCarousel';
 import { LocationPicker } from '@/shared/components/catalog/LocationPicker'; // 🆕 Fase 3
 
@@ -28,6 +33,15 @@ interface ServiceData {
   imageUrl?: string;
   imageUrls?: string[];
   images?: string[];
+  taxId?: string;
+}
+
+function resolveImageUrl(url: string) {
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) {
+    return url;
+  }
+
+  return url.startsWith('/') ? `${API_ORIGIN}${url}` : url;
 }
 
 const getServiceImages = (service: ServiceData) => {
@@ -68,6 +82,7 @@ export function ServiceForm() {
   });
   const [images, setImages] = useState<File[]>([]);
   const [existingImages, setExistingImages] = useState<string[]>([]);
+  const [galleryTouched, setGalleryTouched] = useState(false);
 
   const imagePreviews = useMemo(
     () => images.map((image) => URL.createObjectURL(image)),
@@ -93,7 +108,7 @@ export function ServiceForm() {
   const fillForm = (service: ServiceData) => {
     setForm({
       title: service.businessName || service.title || '',
-      nit: service.nit || '',
+      nit: service.nit || service.taxId || '',
       description: service.description || '',
       category: service.category || 'ACTIVIDAD',
       price: service.price != null ? String(service.price) : '',
@@ -104,6 +119,7 @@ export function ServiceForm() {
     });
 
     setExistingImages(getServiceImages(service));
+    setGalleryTouched(false);
   };
 
   useEffect(() => {
@@ -163,13 +179,25 @@ export function ServiceForm() {
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     const selectedImages = Array.from(e.target.files || []);
-
-    setImages((currentImages) => ([
-      ...currentImages,
-      ...selectedImages,
-    ]));
-
     e.target.value = '';
+
+    if (selectedImages.length === 0) {
+      return;
+    }
+
+    try {
+      selectedImages.forEach(assertImageFile);
+    } catch (error: any) {
+      alert(error?.message || 'Imagen no valida.');
+      return;
+    }
+
+    if (existingImages.length + images.length + selectedImages.length > 10) {
+      alert('No puedes adjuntar mas de 10 imagenes.');
+      return;
+    }
+
+    setImages((currentImages) => [...currentImages, ...selectedImages]);
   };
 
   const removeImage = (index: number) => {
@@ -178,52 +206,47 @@ export function ServiceForm() {
     );
   };
 
+  const removeExistingImage = (index: number) => {
+    setExistingImages((currentImages) =>
+      currentImages.filter((_, currentIndex) => currentIndex !== index)
+    );
+    setGalleryTouched(true);
+  };
+
   const handleSave = async () => {
 
     try {
 
       setLoading(true);
 
-      const token = localStorage.getItem('token');
-      const payload = new FormData();
+      const uploadedUrls = images.length
+        ? await uploadServiceGallery(images)
+        : [];
+      const imageUrls = [...existingImages, ...uploadedUrls];
+      const shouldPersistGallery = !isEdit || galleryTouched || uploadedUrls.length > 0;
 
-      payload.append('businessName', form.title);
-      payload.append('nit', form.nit);
-      payload.append('description', form.description);
-      payload.append('category', form.category);
-      payload.append('price', String(Number(form.price)));
-      payload.append('city', form.city);
-      payload.append('location', form.location);
-      payload.append('latitude', form.latitude);
-      payload.append('longitude', form.longitude);
+      if (shouldPersistGallery && imageUrls.length === 0) {
+        alert('Debes adjuntar al menos una imagen.');
+        return;
+      }
 
-      images.forEach((image) => {
-        payload.append('images', image);
-      });
-
-      const headers = {
-        Authorization: `Bearer ${token}`,
+      const payload = {
+        businessName: form.title,
+        taxId: form.nit,
+        description: form.description,
+        category: form.category,
+        price: String(Number(form.price)),
+        city: form.city,
+        location: form.location,
+        latitude: form.latitude,
+        longitude: form.longitude,
+        ...(shouldPersistGallery ? { imageUrls } : {}),
       };
 
-      if (isEdit) {
-
-        await api.put(
-          `/provider/business/${id}`,
-          payload,
-          {
-            headers,
-          }
-        );
-
+      if (isEdit && id) {
+        await providerBusinessApi.update(id, payload);
       } else {
-
-        await api.post(
-          '/provider/business',
-          payload,
-          {
-            headers,
-          }
-        );
+        await providerBusinessApi.create(payload);
       }
 
       alert(
@@ -240,6 +263,7 @@ export function ServiceForm() {
 
       alert(
         error?.response?.data?.message ||
+        error?.message ||
         'Error guardando servicio'
       );
 
@@ -423,7 +447,7 @@ export function ServiceForm() {
                       <input
                         ref={imageInputRef}
                         type="file"
-                        accept="image/*"
+                        accept="image/jpeg,image/png,image/webp"
                         multiple
                         onChange={handleImageSelect}
                         className="hidden"
@@ -442,8 +466,38 @@ export function ServiceForm() {
                     </div>
                   </div>
 
-                  {images.length > 0 ? (
+                  {existingImages.length > 0 || images.length > 0 ? (
                     <div className="grid sm:grid-cols-2 gap-3">
+                      {existingImages.map((image, index) => (
+                        <div
+                          key={`existing-${image}-${index}`}
+                          className="relative overflow-hidden rounded-lg border bg-white"
+                        >
+                          <img
+                            src={resolveImageUrl(image)}
+                            alt={`Imagen ${index + 1}`}
+                            className="h-32 w-full object-cover"
+                          />
+
+                          <div className="flex items-center justify-between gap-2 p-2">
+                            <span className="truncate text-sm text-gray-600">
+                              Imagen guardada
+                            </span>
+
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => removeExistingImage(index)}
+                              className="h-8 w-8 shrink-0"
+                              aria-label="Quitar imagen guardada"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+
                       {images.map((image, index) => (
                         <div
                           key={`${image.name}-${index}`}

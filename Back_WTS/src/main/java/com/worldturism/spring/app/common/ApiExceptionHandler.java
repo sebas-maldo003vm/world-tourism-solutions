@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -20,6 +21,15 @@ public class ApiExceptionHandler {
 				.forEach(error -> errors.put(error.getField(), error.getDefaultMessage()));
 
 		return ResponseEntity.badRequest().body(body(HttpStatus.BAD_REQUEST, "Datos invalidos", errors));
+	}
+
+	@ExceptionHandler(AccessDeniedException.class)
+	public ResponseEntity<Map<String, Object>> handleForbidden(AccessDeniedException exception) {
+		String message = exception.getMessage() != null && !exception.getMessage().isBlank()
+				? exception.getMessage()
+				: "No tienes permiso para este recurso.";
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+				.body(body(HttpStatus.FORBIDDEN, message, null));
 	}
 
 	@ExceptionHandler({ IllegalArgumentException.class, BadCredentialsException.class })

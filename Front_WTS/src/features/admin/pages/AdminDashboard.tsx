@@ -41,7 +41,12 @@ import {
   type ServiceStatus,
   type UserRole,
 } from '@/features/admin/services/adminApi';
-import { chatApi, type SupportTicket, type SupportStatus } from '@/features/chat/services/chatApi';
+import {
+  chatApi,
+  type SupportTicket,
+  type SupportStatus,
+  type SupportUrgency,
+} from '@/features/chat/services/chatApi';
 import { API_ORIGIN } from '@/core/api/client';
 import { Search, Trash2, Loader2, AlertCircle, CheckCircle2, Ban } from 'lucide-react';
 
@@ -237,6 +242,20 @@ export function AdminDashboard() {
         ROLE_LABELS[user.role].toLowerCase().includes(query)
     );
   }, [searchQuery, users]);
+
+  const handleSupportUrgencyChange = async (ticketId: number, urgency: SupportUrgency) => {
+    setActionLoading(ticketId);
+    try {
+      const { data } = await chatApi.updateSupportTicket(ticketId, { urgency });
+      setSupportTickets((prev) => prev.map((t) => (t.id === ticketId ? data : t)));
+      setActiveTickets((prev) => prev.map((t) => (t.id === ticketId ? data : t)));
+      toast.success('Urgencia del ticket actualizada.');
+    } catch {
+      toast.error('No se pudo actualizar la urgencia del ticket.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const handleSupportStatusChange = async (ticketId: number, status: SupportStatus) => {
     setActionLoading(ticketId);
@@ -686,21 +705,22 @@ export function AdminDashboard() {
                               <TableCell>{ticket.subject}</TableCell>
 
                               <TableCell>
-                                <Badge
-                                  variant={
-                                    ticket.urgency === 'HIGH'
-                                      ? 'destructive'
-                                      : ticket.urgency === 'MEDIUM'
-                                        ? 'secondary'
-                                        : 'default'
+                                <Select
+                                  value={ticket.urgency}
+                                  onValueChange={(value) =>
+                                    handleSupportUrgencyChange(ticket.id, value as SupportUrgency)
                                   }
+                                  disabled={actionLoading === ticket.id}
                                 >
-                                  {ticket.urgency === 'HIGH'
-                                    ? 'Alta'
-                                    : ticket.urgency === 'MEDIUM'
-                                      ? 'Media'
-                                      : 'Baja'}
-                                </Badge>
+                                  <SelectTrigger className="w-28">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="LOW">Baja</SelectItem>
+                                    <SelectItem value="MEDIUM">Media</SelectItem>
+                                    <SelectItem value="HIGH">Alta</SelectItem>
+                                  </SelectContent>
+                                </Select>
                               </TableCell>
 
                               <TableCell>
@@ -713,7 +733,9 @@ export function AdminDashboard() {
                                 >
                                   {ticket.status === 'NEEDS_HUMAN_SUPPORT'
                                     ? 'Necesita humano'
-                                    : ticket.status}
+                                    : ticket.status === 'UNASSIGNED'
+                                      ? 'En cola'
+                                      : ticket.status}
                                 </Badge>
                               </TableCell>
 
@@ -732,6 +754,7 @@ export function AdminDashboard() {
                                       <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
+                                      <SelectItem value="UNASSIGNED">En cola</SelectItem>
                                       <SelectItem value="OPEN">Abierto</SelectItem>
                                       <SelectItem value="IN_PROGRESS">En progreso</SelectItem>
                                       <SelectItem value="NEEDS_HUMAN_SUPPORT">

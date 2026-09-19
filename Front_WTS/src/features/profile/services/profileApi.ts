@@ -31,11 +31,8 @@ export const profileApi = {
   updateProfile: (payload: UpdateProfilePayload) =>
     api.put<UserProfile>('/users/profile', payload),
 
-  uploadProfilePicture: (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    return api.post<ProfilePictureResponse>('/users/profile/picture', formData);
-  },
+  updateProfilePictureUrl: (profilePictureUrl: string) =>
+    api.put<ProfilePictureResponse>('/users/profile/picture', { profilePictureUrl }),
 
   changePassword: (data: ChangePasswordDTO) =>
     api.put<void>('/users/profile/password', data),

@@ -1,30 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, Send, Bot, X, Headphones, Loader2 } from 'lucide-react';
+import { Send, Bot, X, Headphones } from 'lucide-react';
 import { toast } from 'sonner';
 import { isJwtValid } from '@/app/routes/ProtectedRoute';
-import { chatApi, type SupportUrgency } from '@/features/chat/services/chatApi';
+import { chatApi } from '@/features/chat/services/chatApi';
+import { SupportTicketModal } from '@/features/chat/components/SupportTicketModal';
 import {
   useEphemeralChatbot,
   type SuggestionChip,
 } from '@/features/chat/hooks/useEphemeralChatbot';
-import { Button } from '@/shared/components/ui/button';
-import { Input } from '@/shared/components/ui/input';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/shared/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/shared/components/ui/select';
 
 function formatTime(value: string) {
   if (value === new Date(0).toISOString()) return '';
@@ -88,8 +72,6 @@ export function ChatWidget() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [visible, setVisible] = useState(false);
-  const [supportMessage, setSupportMessage] = useState('');
-  const [supportUrgency, setSupportUrgency] = useState<SupportUrgency>('MEDIUM');
   const [creatingTicket, setCreatingTicket] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -116,18 +98,13 @@ export function ChatWidget() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, open]);
 
-  useEffect(() => {
-    if (escalateOpen) {
-      setSupportMessage(draftSupportMessage);
-      setSupportUrgency('MEDIUM');
-    }
-  }, [escalateOpen, draftSupportMessage]);
-
   if (!visible) return null;
 
-  const handleCreateSupportTicket = async () => {
-    const message = supportMessage.trim();
-    if (!message || creatingTicket) return;
+  const handleCreateSupportTicket = async (payload: {
+    subject: string;
+    initialMessage: string;
+  }) => {
+    if (creatingTicket) return;
 
     if (!canUseChatbot()) {
       toast.error('Debes iniciar sesión como turista o proveedor.');
@@ -137,11 +114,7 @@ export function ChatWidget() {
 
     setCreatingTicket(true);
     try {
-      const { data } = await chatApi.createSupportTicket({
-        message,
-        urgency: supportUrgency,
-        serviceName: 'Escalado desde asistente virtual',
-      });
+      const { data } = await chatApi.createSupportTicket(payload);
       setEscalateOpen(false);
       setOpen(false);
       toast.success('Ticket de soporte creado', {
@@ -165,7 +138,7 @@ export function ChatWidget() {
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
+    <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3">
       {open && (
         <div className="flex h-[min(520px,70vh)] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
           <div className="flex items-center justify-between bg-slate-900 px-4 py-3 text-white">
@@ -248,80 +221,35 @@ export function ChatWidget() {
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-slate-900 text-white shadow-lg transition hover:bg-slate-800"
-        aria-label={open ? 'Cerrar asistente' : 'Abrir asistente virtual'}
-      >
-        {open ? <X className="h-6 w-6" /> : <MessageSquare className="h-6 w-6" />}
-      </button>
+      <div className="group relative">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-slate-900 text-white shadow-lg transition hover:bg-slate-800"
+          aria-label={open ? 'Cerrar asistente' : 'Abrir asistente virtual'}
+        >
+          {open ? <X className="h-6 w-6" /> : <Bot className="h-6 w-6" />}
+        </button>
+        {!open && (
+          <span
+            role="tooltip"
+            className="pointer-events-none absolute right-full top-1/2 mr-3 -translate-y-1/2 whitespace-nowrap rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow-md transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100"
+          >
+            Asistente virtual
+          </span>
+        )}
+      </div>
 
-      <Dialog
+      <SupportTicketModal
         open={escalateOpen}
-        onOpenChange={(next) => {
-          setEscalateOpen(next);
-          if (!next) {
-            setSupportMessage('');
-            setSupportUrgency('MEDIUM');
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-center sm:text-center">Hablar con un asesor</DialogTitle>
-            <DialogDescription className="text-center sm:text-center">
-              Se creará un ticket de soporte persistente para que un agente humano te atienda en
-              Mensajes.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <Input
-              placeholder="Describe tu solicitud..."
-              value={supportMessage}
-              onChange={(e) => setSupportMessage(e.target.value)}
-            />
-            <Select
-              value={supportUrgency}
-              onValueChange={(value) => setSupportUrgency(value as SupportUrgency)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Urgencia" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="LOW">Baja</SelectItem>
-                <SelectItem value="MEDIUM">Media</SelectItem>
-                <SelectItem value="HIGH">Alta</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <DialogFooter className="flex-row gap-2 sm:justify-stretch">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => setEscalateOpen(false)}
-              disabled={creatingTicket}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              className="flex-1 bg-amber-600 hover:bg-amber-700"
-              onClick={handleCreateSupportTicket}
-              disabled={creatingTicket || !supportMessage.trim()}
-            >
-              {creatingTicket ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                'Crear ticket'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={setEscalateOpen}
+        onSubmit={handleCreateSupportTicket}
+        submitting={creatingTicket}
+        title="Hablar con un asesor"
+        description="Se creará un ticket de soporte persistente para que un agente humano te atienda en Mensajes."
+        submitLabel="Enviar"
+        defaultMessage={draftSupportMessage}
+      />
     </div>
   );
 }

@@ -8,8 +8,10 @@ import {
   TabsTrigger
 } from '@/shared/components/ui/tabs';
 
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, API_ORIGIN } from '@/core/api/client';
+import { useAuth } from '@/features/auth/context/AuthContext';
+import { UserAvatar } from '@/shared/components/UserAvatar';
 import { contactProvider } from '@/features/chat/utils/contactProvider';
 import { useFavorites } from '@/features/catalog/hooks/useFavorites';
 import {
@@ -19,13 +21,6 @@ import {
   Settings
 } from 'lucide-react';
 import { Badge } from '@/shared/components/ui/badge';
-
-interface UserData {
-  id: number;
-  name: string;
-  email: string;
-  role: 'USER' | 'PROVIDER' | 'ADMIN' | 'SUPPORT';
-}
 
 interface BookingData {
   id: number | string;
@@ -121,18 +116,27 @@ const getStatusVariant = (status?: string) => {
   return 'destructive';
 };
 
+const PROFILE_TABS = ['account', 'bookings', 'saved'] as const;
+type ProfileTab = (typeof PROFILE_TABS)[number];
+
+function resolveProfileTab(tab: string | null): ProfileTab {
+  if (tab === 'bookings' || tab === 'saved') {
+    return tab;
+  }
+
+  return 'account';
+}
+
 export function Profile() {
 
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = resolveProfileTab(searchParams.get('tab'));
   const { favorites, loading: favoritesLoading } = useFavorites();
   const [bookings, setBookings] = useState<BookingData[]>([]);
   const [bookingsLoading, setBookingsLoading] = useState(false);
 
-  // USER
-  const storedUser = localStorage.getItem('user');
-
-  const user: UserData | null =
-    storedUser ? JSON.parse(storedUser) : null;
+  const { user } = useAuth();
 
   // ROLES
   const isTurista = user?.role === 'USER';
@@ -170,6 +174,18 @@ export function Profile() {
     loadBookings();
   }, [isTurista]);
 
+  const handleTabChange = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+
+    if (value === 'bookings' || value === 'saved') {
+      next.set('tab', value);
+    } else {
+      next.delete('tab');
+    }
+
+    setSearchParams(next);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-6">
 
@@ -182,11 +198,7 @@ export function Profile() {
 
             <div className="flex items-start gap-6">
 
-              <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
-
-                <User className="h-12 w-12 text-white" />
-
-              </div>
+              <UserAvatar src={user?.profilePictureUrl} name={user?.name} size="xl" />
 
               <div className="flex-1">
 
@@ -218,9 +230,18 @@ export function Profile() {
         {/* ================= USER ================= */}
         {isTurista && (
 
-          <Tabs defaultValue="bookings" className="space-y-6">
+          <Tabs
+            value={activeTab}
+            onValueChange={handleTabChange}
+            className="space-y-6"
+          >
 
-            <TabsList className="grid w-full grid-cols-2 lg:w-auto lg:inline-grid">
+            <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
+
+              <TabsTrigger value="account" className="gap-2">
+                <User className="h-4 w-4" />
+                Mis datos
+              </TabsTrigger>
 
               <TabsTrigger value="bookings" className="gap-2">
                 <Calendar className="h-4 w-4" />
@@ -233,6 +254,31 @@ export function Profile() {
               </TabsTrigger>
 
             </TabsList>
+
+            <TabsContent value="account">
+
+              <div className="space-y-4">
+
+                <h2 className="text-xl font-semibold">
+                  Información personal
+                </h2>
+
+                <Card>
+                  <CardContent className="p-6 space-y-3 text-sm text-gray-600">
+                    <p>
+                      <span className="font-medium text-gray-900">Nombre: </span>
+                      {user?.name}
+                    </p>
+                    <p>
+                      <span className="font-medium text-gray-900">Correo: </span>
+                      {user?.email}
+                    </p>
+                  </CardContent>
+                </Card>
+
+              </div>
+
+            </TabsContent>
 
             {/* BOOKINGS */}
             <TabsContent value="bookings">
@@ -320,16 +366,19 @@ export function Profile() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={async () => {
+                            onClick={() => {
                               const businessId = Number(
-                                booking.businessId ||
-                                  booking.business?.id ||
-                                  booking.business?.businessId
+                                getBookingBusinessId(booking)
                               );
+                              const serviceName = getBookingName(booking);
                               if (businessId) {
-                                await contactProvider(navigate, businessId);
+                                contactProvider(navigate, businessId, {
+                                  serviceId: businessId,
+                                  serviceName,
+                                  providerName: serviceName,
+                                });
                               } else {
-                                navigate('/chat');
+                                navigate('/messages');
                               }
                             }}
                             className="rounded-full"

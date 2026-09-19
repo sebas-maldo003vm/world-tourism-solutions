@@ -1,5 +1,8 @@
 package com.worldturism.spring.app.application.service;
 
+import com.worldturism.spring.app.domain.model.AppUser;
+import com.worldturism.spring.app.domain.model.ProviderProfile;
+import com.worldturism.spring.app.domain.model.Role;
 import com.worldturism.spring.app.domain.model.ServiceStatus;
 import com.worldturism.spring.app.infrastructure.persistence.repository.ProviderProfileRepository;
 import com.worldturism.spring.app.presentation.dto.ProviderResponse;
@@ -25,10 +28,34 @@ public class PublicBusinessManager {
 	}
 
 	@Transactional(readOnly = true)
-	public ProviderResponse getById(Long businessId) {
-		return providerProfileRepository.findById(businessId)
-				.filter(business -> business.getStatus() == ServiceStatus.APPROVED)
-				.map(ProviderResponse::from)
+	public ProviderResponse getById(Long businessId, AppUser currentUser) {
+		ProviderProfile business = providerProfileRepository.findById(businessId)
 				.orElseThrow(() -> new IllegalArgumentException("No existe un negocio con ese id."));
+
+		if (isPubliclyVisible(business) || canPreviewUnpublished(business, currentUser)) {
+			return ProviderResponse.from(business);
+		}
+
+		throw new IllegalArgumentException("No existe un negocio con ese id.");
+	}
+
+	private boolean isPubliclyVisible(ProviderProfile business) {
+		return business.getStatus() == ServiceStatus.APPROVED;
+	}
+
+	/**
+	 * El dueño (providerUserId) y un administrador pueden previsualizar el servicio
+	 * aunque esté PENDING, REJECTED o INACTIVE. Visitantes y turistas no.
+	 */
+	private boolean canPreviewUnpublished(ProviderProfile business, AppUser currentUser) {
+		if (currentUser == null || currentUser.getId() == null) {
+			return false;
+		}
+		if (currentUser.getRole() == Role.ADMIN) {
+			return true;
+		}
+
+		AppUser owner = business.getUser();
+		return owner != null && currentUser.getId().equals(owner.getId());
 	}
 }

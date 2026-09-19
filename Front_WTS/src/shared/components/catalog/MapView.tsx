@@ -105,6 +105,7 @@ interface MapViewProps {
   services: MapService[];
   onServiceClick?: (service: MapService) => void;
   userPosition?: UserPosition | null; // 🆕 Fase 2 - opcional, no rompe usos anteriores
+  layoutKey?: string;
 }
 
 const DEFAULT_CENTER: [number, number] = [4.711, -74.0721]; // Bogotá
@@ -139,36 +140,56 @@ function getServicePosition(
   return [lat, lng];
 }
 
-// Ajusta el mapa a los markers disponibles
-// (reemplaza la lógica de fitBounds de Google Maps)
-// 🆕 Fase 2: ahora también toma en cuenta la posición del usuario, si existe
-function FitBounds({
+// Recalcula el tamaño de Leaflet cuando el contenedor cambia (p. ej. Solo Mapa)
+// y encuadra de nuevo los markers para que no queden cortados.
+function SyncMapViewport({
   positions,
   userPosition,
+  layoutKey,
 }: {
   positions: [number, number][];
   userPosition?: UserPosition | null;
+  layoutKey?: string;
 }) {
   const map = useMap();
 
   useEffect(() => {
-    const allPoints: [number, number][] = [...positions];
+    const container = map.getContainer();
+    const observer = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
 
-    if (userPosition) {
-      allPoints.push([userPosition.lat, userPosition.lng]);
-    }
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [map]);
 
-    if (allPoints.length === 0) return;
+  useEffect(() => {
+    const fit = () => {
+      map.invalidateSize();
 
-    if (allPoints.length === 1) {
-      map.setView(allPoints[0], 14);
-    } else {
-      map.fitBounds(
-        L.latLngBounds(allPoints),
-        { padding: [40, 40] }
-      );
-    }
-  }, [map, positions, userPosition]);
+      const allPoints: [number, number][] = [...positions];
+
+      if (userPosition) {
+        allPoints.push([userPosition.lat, userPosition.lng]);
+      }
+
+      if (allPoints.length === 0) return;
+
+      if (allPoints.length === 1) {
+        map.setView(allPoints[0], 14);
+      } else {
+        map.fitBounds(L.latLngBounds(allPoints), { padding: [40, 40] });
+      }
+    };
+
+    const frame = requestAnimationFrame(fit);
+    const timer = window.setTimeout(fit, 200);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [map, positions, userPosition, layoutKey]);
 
   return null;
 }
@@ -177,6 +198,7 @@ export function MapView({
   services,
   onServiceClick,
   userPosition, // 🆕
+  layoutKey,
 }: MapViewProps) {
 
   // ==========================================================
@@ -273,11 +295,12 @@ export function MapView({
   // ==========================================================
 
   return (
-    <Card className="h-full overflow-hidden relative bg-gray-100">
+    <Card className="relative z-0 isolate h-full overflow-hidden bg-gray-100">
 
       <MapContainer
         center={DEFAULT_CENTER}
         zoom={servicesWithPosition.length ? 12 : 6}
+        className="isolate z-0"
         style={{
           height: '100%',
           width: '100%',
@@ -344,9 +367,10 @@ export function MapView({
             AJUSTAR MAPA A LOS MARKERS
             ==================================================== */}
 
-        <FitBounds
+        <SyncMapViewport
           positions={positions}
           userPosition={userPosition}
+          layoutKey={layoutKey}
         />
 
       </MapContainer>
