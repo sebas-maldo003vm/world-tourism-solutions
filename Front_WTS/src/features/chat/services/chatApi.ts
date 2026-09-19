@@ -39,6 +39,10 @@ export interface ConversationItem {
   /** Alias de providerProfileId (perfil del proveedor). */
   providerId?: number;
   providerProfileId?: number;
+  /** Solo en cliente: conversación aún no persistida. */
+  ephemeral?: boolean;
+  serviceId?: number | null;
+  serviceName?: string | null;
   providerProfileName?: string;
   businessName?: string;
   logoUrl?: string;
@@ -91,6 +95,8 @@ export interface ChatBotMessageResponse {
 export interface StartConversationPayload {
   providerProfileId: number;
   initialMessage?: string;
+  serviceName?: string;
+  serviceId?: number;
 }
 
 export interface StartClientConversationPayload {
@@ -100,8 +106,12 @@ export interface StartClientConversationPayload {
 }
 
 export interface CreateSupportTicketPayload {
-  message: string;
-  serviceName?: string;
+  subject: string;
+  initialMessage: string;
+}
+
+export interface UpdateSupportTicketPayload {
+  status?: SupportStatus;
   urgency?: SupportUrgency;
 }
 
@@ -173,6 +183,13 @@ export const chatApi = {
     api.patch<SupportTicket>(
       `/chat/support/${conversationId}/status`,
       { status },
+      { headers: authHeaders() },
+    ),
+
+  updateSupportTicket: (conversationId: number, payload: UpdateSupportTicketPayload) =>
+    api.patch<SupportTicket>(
+      `/chat/support/${conversationId}/status`,
+      payload,
       { headers: authHeaders() },
     ),
 

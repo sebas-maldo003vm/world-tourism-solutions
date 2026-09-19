@@ -110,12 +110,35 @@ export function conversationTitle(
   );
 }
 
+const RESERVED_SUBJECTS = new Set([
+  'asistente virtual',
+  'soporte humano',
+  'soporte general',
+  'soporte técnico',
+]);
+
+/** Nombre del servicio consultado, si el hilo lo trae. */
+export function inquiryServiceName(conv: ConversationItem): string | null {
+  const fromField = conv.serviceName?.trim();
+  if (fromField) return fromField;
+  if (!isDirectProviderChat(conv)) return null;
+  const subject = conv.subject?.trim();
+  if (!subject || RESERVED_SUBJECTS.has(subject.toLowerCase())) return null;
+  return subject;
+}
+
+export function inquirySubtitle(conv: ConversationItem): string | null {
+  const name = inquiryServiceName(conv);
+  return name ? `Consulta sobre: ${name}` : null;
+}
+
 /** Subtítulo: staff ve ambos; provider ve cliente; user ve negocio. */
 export function conversationSubtitle(
   conv: ConversationItem,
   viewerRole?: string | null,
 ): string {
   const isStaff = viewerRole === 'ADMIN' || viewerRole === 'SUPPORT';
+  const inquiry = inquirySubtitle(conv);
 
   if (isSupportType(conv.conversationType)) {
     return isStaff ? 'Ticket de soporte humano' : 'Canal de soporte';
@@ -127,12 +150,14 @@ export function conversationSubtitle(
     const parts = [business, conv.category, conv.city].filter(
       (part) => part && String(part).trim(),
     );
-    return `Cliente → ${parts.join(' · ')}`;
+    return inquiry ? `${inquiry} · ${parts.join(' · ')}` : `Cliente → ${parts.join(' · ')}`;
   }
 
   if (viewerRole === 'PROVIDER') {
-    return 'Cliente que inició el chat';
+    return inquiry || 'Cliente que inició el chat';
   }
+
+  if (inquiry) return inquiry;
 
   const parts = [conv.category, conv.city].filter((part) => part && part.trim());
   if (parts.length > 0) {

@@ -20,120 +20,123 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
 	List<Conversation> findByProviderIdAndConversationTypeOrderByLastMessageAtDesc(
 			Long providerId, ConversationType conversationType);
 
+	/**
+	 * Chats comerciales del turista emisor. Nunca incluye catálogo/bot ni tickets de soporte.
+	 */
 	@Query("""
 			SELECT DISTINCT c FROM Conversation c
 			LEFT JOIN FETCH c.provider p
 			LEFT JOIN FETCH p.user
 			LEFT JOIN FETCH c.user
 			WHERE c.user.id = :userId
+			  AND c.conversationType = :commercialType
 			  AND c.conversationType <> :botType
 			  AND (c.subject IS NULL OR c.subject <> :botSubject)
 			ORDER BY c.lastMessageAt DESC
 			""")
-	List<Conversation> findHumanByUserIdOrderByLastMessageAtDesc(
+	List<Conversation> findCommercialByClientUserId(
 			@Param("userId") Long userId,
+			@Param("commercialType") ConversationType commercialType,
 			@Param("botType") ConversationType botType,
 			@Param("botSubject") String botSubject);
 
-	default List<Conversation> findByUserIdOrderByLastMessageAtDesc(Long userId) {
-		return findHumanByUserIdOrderByLastMessageAtDesc(
-				userId, ConversationType.CATALOG_INQUIRY, Conversation.BOT_SUBJECT);
+	default List<Conversation> findCommercialByClientUserId(Long userId) {
+		return findCommercialByClientUserId(
+				userId,
+				ConversationType.CLIENT_TO_PROVIDER,
+				ConversationType.CATALOG_INQUIRY,
+				Conversation.BOT_SUBJECT);
 	}
 
-	List<Conversation> findByProviderIdOrderByLastMessageAtDesc(Long providerId);
-
+	/**
+	 * Chats comerciales de los perfiles del proveedor autenticado
+	 * ({@code providerProfile.user.id}). No lista conversaciones de otros negocios.
+	 */
 	@Query("""
 			SELECT DISTINCT c FROM Conversation c
 			LEFT JOIN FETCH c.provider p
 			LEFT JOIN FETCH p.user
 			LEFT JOIN FETCH c.user
 			WHERE p.user.id = :userId
+			  AND c.conversationType = :commercialType
 			  AND c.conversationType <> :botType
 			  AND (c.subject IS NULL OR c.subject <> :botSubject)
 			ORDER BY c.lastMessageAt DESC
 			""")
-	List<Conversation> findHumanByProviderUserIdOrderByLastMessageAtDesc(
+	List<Conversation> findCommercialByProviderUserId(
 			@Param("userId") Long userId,
+			@Param("commercialType") ConversationType commercialType,
 			@Param("botType") ConversationType botType,
 			@Param("botSubject") String botSubject);
 
-	default List<Conversation> findByProvider_User_IdOrderByLastMessageAtDesc(Long userId) {
-		return findHumanByProviderUserIdOrderByLastMessageAtDesc(
-				userId, ConversationType.CATALOG_INQUIRY, Conversation.BOT_SUBJECT);
+	default List<Conversation> findCommercialByProviderUserId(Long userId) {
+		return findCommercialByProviderUserId(
+				userId,
+				ConversationType.CLIENT_TO_PROVIDER,
+				ConversationType.CATALOG_INQUIRY,
+				Conversation.BOT_SUBJECT);
 	}
 
+	/**
+	 * Tickets de soporte del cliente que los abrió ({@code user_id}).
+	 * Excluye {@code CATALOG_INQUIRY} y sesiones del asistente.
+	 */
 	@Query("""
 			SELECT DISTINCT c FROM Conversation c
 			LEFT JOIN FETCH c.provider p
 			LEFT JOIN FETCH p.user
 			LEFT JOIN FETCH c.user
-			WHERE c.conversationType IN :types
+			LEFT JOIN FETCH c.assignedAdvisor
+			WHERE c.user.id = :userId
+			  AND c.conversationType IN :types
 			  AND c.conversationType <> :botType
 			  AND (c.subject IS NULL OR c.subject <> :botSubject)
 			ORDER BY c.lastMessageAt DESC
 			""")
-	List<Conversation> findHumanByConversationTypeInOrderByLastMessageAtDesc(
+	List<Conversation> findSupportTicketsByOwner(
+			@Param("userId") Long userId,
 			@Param("types") List<ConversationType> types,
 			@Param("botType") ConversationType botType,
 			@Param("botSubject") String botSubject);
 
-	default List<Conversation> findByConversationTypeInOrderByLastMessageAtDesc(List<ConversationType> types) {
-		return findHumanByConversationTypeInOrderByLastMessageAtDesc(
-				types, ConversationType.CATALOG_INQUIRY, Conversation.BOT_SUBJECT);
+	default List<Conversation> findSupportTicketsByOwner(Long userId, List<ConversationType> types) {
+		return findSupportTicketsByOwner(
+				userId, types, ConversationType.CATALOG_INQUIRY, Conversation.BOT_SUBJECT);
 	}
-
-	/** Conversaciones humanas cliente↔negocio para panel ADMIN/SUPPORT (sin bot). */
-	@Query("""
-			SELECT DISTINCT c FROM Conversation c
-			LEFT JOIN FETCH c.provider p
-			LEFT JOIN FETCH p.user
-			LEFT JOIN FETCH c.user
-			WHERE c.conversationType = :type
-			  AND (c.subject IS NULL OR c.subject <> :botSubject)
-			ORDER BY c.lastMessageAt DESC
-			""")
-	List<Conversation> findHumanByConversationTypeOrderByLastMessageAtDesc(
-			@Param("type") ConversationType type,
-			@Param("botSubject") String botSubject);
-
-	default List<Conversation> findHumanByConversationTypeOrderByLastMessageAtDesc(ConversationType type) {
-		return findHumanByConversationTypeOrderByLastMessageAtDesc(type, Conversation.BOT_SUBJECT);
-	}
-
-	List<Conversation> findBySupportStatusOrderByLastMessageAtDesc(SupportStatus supportStatus);
-
-	List<Conversation> findBySupportStatusInOrderByLastMessageAtDesc(List<SupportStatus> statuses);
 
 	/**
-	 * Inbox de asesores: tickets humanos sin asignar o asignados al staff indicado,
-	 * excluyendo RESOLVED/CLOSED y chats del bot.
+	 * Inbox de staff: solo tickets de soporte sin asignar en cola
+	 * ({@code assigned_advisor_id IS NULL} y {@code support_status = UNASSIGNED})
+	 * o asignados al asesor autenticado. Nunca chats comerciales ni del bot.
 	 */
 	@Query("""
 			SELECT DISTINCT c FROM Conversation c
 			LEFT JOIN FETCH c.user
 			LEFT JOIN FETCH c.assignedAdvisor
+			LEFT JOIN FETCH c.provider p
+			LEFT JOIN FETCH p.user
 			WHERE c.conversationType IN :types
 			  AND c.conversationType <> :botType
 			  AND (c.subject IS NULL OR c.subject <> :botSubject)
-			  AND c.supportStatus NOT IN :excludedStatuses
-			  AND (c.assignedAdvisor IS NULL OR c.assignedAdvisor.id = :advisorId)
+			  AND (
+			        (c.assignedAdvisor IS NULL AND c.supportStatus = :unassignedStatus)
+			        OR c.assignedAdvisor.id = :advisorId
+			      )
 			ORDER BY c.lastMessageAt DESC
 			""")
-	List<Conversation> findSupportInboxForAdvisor(
+	List<Conversation> findStaffVisibleSupportTickets(
 			@Param("types") List<ConversationType> types,
 			@Param("advisorId") Long advisorId,
-			@Param("excludedStatuses") List<SupportStatus> excludedStatuses,
+			@Param("unassignedStatus") SupportStatus unassignedStatus,
 			@Param("botType") ConversationType botType,
 			@Param("botSubject") String botSubject);
 
-	default List<Conversation> findSupportInboxForAdvisor(
-			List<ConversationType> types,
-			Long advisorId,
-			List<SupportStatus> excludedStatuses) {
-		return findSupportInboxForAdvisor(
+	default List<Conversation> findStaffVisibleSupportTickets(
+			List<ConversationType> types, Long advisorId) {
+		return findStaffVisibleSupportTickets(
 				types,
 				advisorId,
-				excludedStatuses,
+				SupportStatus.UNASSIGNED,
 				ConversationType.CATALOG_INQUIRY,
 				Conversation.BOT_SUBJECT);
 	}

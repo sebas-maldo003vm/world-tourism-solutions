@@ -133,7 +133,7 @@ public class ChatController {
 	}
 
 	@PatchMapping("/support/{conversationId}/status")
-	@Operation(summary = "Actualizar estado de ticket de soporte (ADMIN / SUPPORT)")
+	@Operation(summary = "Actualizar estado y/o urgencia del ticket (ADMIN / SUPPORT)")
 	public SupportTicketResponse actualizarEstadoTicket(
 			@AuthenticationPrincipal AppUser user,
 			@PathVariable Long conversationId,
