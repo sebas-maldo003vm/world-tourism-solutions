@@ -15,11 +15,12 @@ import {
 import { Eye, EyeOff } from 'lucide-react';
 
 import { api } from '@/core/api/client';
-import { notifyAuthChanged } from '@/features/catalog/hooks/useFavorites';
+import { useAuth } from '@/features/auth/context/AuthContext';
 
 export function Register() {
 
   const navigate = useNavigate();
+  const { setUser } = useAuth();
 
   const [showPassword, setShowPassword] =
     useState(false);
@@ -103,12 +104,7 @@ export function Register() {
         data.token
       );
 
-      // USER
-      localStorage.setItem(
-        'user',
-        JSON.stringify(data.user)
-      );
-      notifyAuthChanged();
+      setUser(data.user);
 
       // REDIRECCION
       redirectByRole(
