@@ -1,20 +1,27 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { Badge } from '@/shared/components/ui/badge';
 import { Button } from '@/shared/components/ui/button';
 import { Card, CardContent } from '@/shared/components/ui/card';
 import { Label } from '@/shared/components/ui/label';
 import { Input } from '@/shared/components/ui/input';
 import { Calendar } from '@/shared/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover';
-import { Calendar as CalendarIcon, MapPin, Star, Users, DollarSign, Clock, MessageSquare } from 'lucide-react';
+import { Calendar as CalendarIcon, MapPin, Star, Users, DollarSign, Clock, MessageSquare, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { api } from '@/core/api/client';
 import { ImageCarousel } from '@/shared/components/catalog/ImageCarousel';
 import { contactProvider } from '@/features/chat/utils/contactProvider';
+import { useAuth } from '@/features/auth/context/AuthContext';
+
+export type ServiceStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'COMPLETED';
 
 interface Business {
   id: number;
+  providerProfileId?: number;
+  provider_profile_id?: number;
+  providerUserId?: number;
   businessName: string;
   description: string;
   address?: string;
@@ -23,7 +30,68 @@ interface Business {
   logoUrl?: string;
   imageUrls?: string[];
   price?: number;
+  status?: ServiceStatus | string;
 }
+
+const toNumericId = (value: unknown) => {
+  if (value == null || value === '') return null;
+  const id = Number(value);
+  return Number.isFinite(id) ? id : null;
+};
+
+const getProviderProfileId = (service: Business | null) =>
+  toNumericId(service?.providerProfileId ?? service?.provider_profile_id ?? service?.id);
+
+const getOwnerUserId = (service: Business | null) => toNumericId(service?.providerUserId);
+
+const STATUS_PRESENTATION: Record<
+  ServiceStatus,
+  { label: string; className: string; message: string }
+> = {
+  PENDING: {
+    label: '⏳ Pendiente de aprobación',
+    className: 'bg-amber-100 text-amber-800 border-amber-300',
+    message: 'Tu servicio se encuentra en proceso de revisión por parte del administrador.',
+  },
+  APPROVED: {
+    label: '🟢 Aprobado / Publicado',
+    className: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+    message: 'Tu servicio está activo y disponible en el catálogo para recibir reservas.',
+  },
+  REJECTED: {
+    label: '🔴 Rechazado',
+    className: 'bg-rose-100 text-rose-800 border-rose-300',
+    message:
+      'El servicio fue rechazado por el administrador. Revisa los detalles o edítalo para enviarlo nuevamente a revisión.',
+  },
+  CANCELLED: {
+    label: '⚪ Cancelado / Desactivado',
+    className: 'bg-slate-100 text-slate-800 border-slate-300',
+    message: 'Este servicio ha sido deshabilitado.',
+  },
+  COMPLETED: {
+    label: '🔵 Finalizado',
+    className: 'bg-blue-100 text-blue-800 border-blue-300',
+    message: 'El ciclo del servicio o su campaña ha finalizado.',
+  },
+};
+
+const toServiceStatus = (status?: string | null): ServiceStatus | null => {
+  switch (status?.trim().toUpperCase()) {
+    case 'PENDING':
+    case 'APPROVED':
+    case 'REJECTED':
+    case 'CANCELLED':
+    case 'COMPLETED':
+      return status.trim().toUpperCase() as ServiceStatus;
+    case 'INACTIVE':
+      return 'CANCELLED';
+    case 'ACTIVE':
+      return 'APPROVED';
+    default:
+      return null;
+  }
+};
 
 interface ReviewData {
   id: number | string;
@@ -51,6 +119,7 @@ const getReviewsFromResponse = (data: any): ReviewData[] => {
 export function Booking() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user: currentUser } = useAuth();
 
   const token = localStorage.getItem('token');
   const isAuthenticated = !!token;
@@ -65,12 +134,48 @@ export function Booking() {
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [people, setPeople] = useState(1);
-  const [contacting, setContacting] = useState(false);
+  const [ownedProfileIds, setOwnedProfileIds] = useState<number[]>([]);
+  const [ownershipResolved, setOwnershipResolved] = useState(false);
 
   useEffect(() => {
     loadBusiness();
     loadReviews();
   }, [id]);
+
+  useEffect(() => {
+    if (!isAuthenticated || currentUser?.role !== 'PROVIDER') {
+      setOwnedProfileIds([]);
+      setOwnershipResolved(true);
+      return;
+    }
+
+    let cancelled = false;
+    setOwnershipResolved(false);
+
+    api
+      .get('/provider/business')
+      .then((response) => {
+        if (cancelled) return;
+        const rows = Array.isArray(response.data) ? response.data : [];
+        setOwnedProfileIds(
+          rows
+            .map((item: { providerProfileId?: number; provider_profile_id?: number; id?: number }) =>
+              toNumericId(item.providerProfileId ?? item.provider_profile_id ?? item.id),
+            )
+            .filter((profileId): profileId is number => profileId != null),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setOwnedProfileIds([]);
+      })
+      .finally(() => {
+        if (!cancelled) setOwnershipResolved(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, currentUser?.role]);
 
   const averageRating = useMemo(() => {
     if (reviews.length === 0) return 0;
@@ -162,6 +267,15 @@ export function Booking() {
   }
 
   const total = Number(business.price || 0) * people;
+  const providerProfileId = getProviderProfileId(business);
+  const ownerUserId = getOwnerUserId(business);
+  const isOwnerByUser =
+    currentUser?.id != null && ownerUserId != null && Number(currentUser.id) === ownerUserId;
+  const isOwnerByProfile =
+    providerProfileId != null && ownedProfileIds.includes(providerProfileId);
+  const isOwner = isOwnerByUser || isOwnerByProfile;
+  const serviceStatus = toServiceStatus(business.status);
+  const statusPresentation = serviceStatus ? STATUS_PRESENTATION[serviceStatus] : null;
 
   return (
     <div className="min-h-screen bg-gray-50 py-6">
@@ -264,8 +378,59 @@ export function Booking() {
             </Card>
           </div>
 
-          {/* RESERVA */}
           <div className="lg:col-span-2">
+            {currentUser?.role === 'PROVIDER' && !ownershipResolved && !isOwnerByUser ? (
+              <Card className="sticky top-20 shadow-lg border-0">
+                <CardContent className="p-6 text-sm text-gray-600">Cargando vista del servicio...</CardContent>
+              </Card>
+            ) : isOwner ? (
+              <Card className="sticky top-20 shadow-lg border-0">
+                <CardContent className="p-6">
+                  <h2 className="text-2xl font-bold mb-2">Vista de previsualización</h2>
+                  <p className="text-sm text-gray-600 mb-6">
+                    Así se ve tu servicio. No puedes reservarlo ni enviarte mensajes a ti mismo.
+                  </p>
+
+                  <div className="space-y-5">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-700 mb-2">Estado del servicio</p>
+                      <Badge
+                        variant="outline"
+                        className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                          statusPresentation?.className ?? 'bg-slate-100 text-slate-800 border-slate-300'
+                        }`}
+                      >
+                        {statusPresentation?.label ?? 'Estado no disponible'}
+                      </Badge>
+                    </div>
+
+                    {statusPresentation && (
+                      <div className={`rounded-xl border p-4 text-sm ${statusPresentation.className}`}>
+                        {statusPresentation.message}
+                      </div>
+                    )}
+
+                    <Button
+                      type="button"
+                      onClick={() => navigate(`/edit-service/${business.id}`)}
+                      className="w-full bg-blue-600 hover:bg-blue-700 rounded-full h-12 text-base gap-2"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Editar Servicio
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => navigate('/dashboard-accesor')}
+                      className="w-full rounded-full h-12 text-base"
+                    >
+                      Volver al Panel
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
             <Card className="sticky top-20 shadow-lg border-0">
               <CardContent className="p-6">
                 <h2 className="text-2xl font-bold mb-6">Reservar</h2>
@@ -394,21 +559,24 @@ export function Booking() {
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={contacting}
-                      onClick={async () => {
-                        setContacting(true);
-                        await contactProvider(navigate, business.id);
-                        setContacting(false);
+                      onClick={() => {
+                        const providerId = providerProfileId ?? business.id;
+                        contactProvider(navigate, providerId, {
+                          serviceId: business.id,
+                          serviceName: business.businessName,
+                          providerName: business.businessName,
+                        });
                       }}
                       className="w-full rounded-full h-12 text-base gap-2"
                     >
                       <MessageSquare className="h-4 w-4" />
-                      {contacting ? 'Abriendo chat...' : 'Contactar proveedor'}
+                      Contactar proveedor
                     </Button>
                   )}
                 </div>
               </CardContent>
             </Card>
+            )}
           </div>
         </div>
       </div>
