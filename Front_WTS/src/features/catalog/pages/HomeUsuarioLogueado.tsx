@@ -1,20 +1,32 @@
-import { useEffect, useState } from 'react';
-
-import { ServiceCard } from '@/shared/components/catalog/ServiceCard';
-
-import { FilterBar, Filters } from '@/shared/components/catalog/FilterBar';
-
-import { MapView } from '@/shared/components/catalog/MapView';
-
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-import { Button } from '@/shared/components/ui/button';
-
-import { Map } from 'lucide-react';
-
-import { api } from '@/core/api/client';
+import { Columns2, LayoutList, Map, type LucideIcon } from 'lucide-react';
+import { ServiceCard } from '@/shared/components/catalog/ServiceCard';
+import {
+  DEFAULT_FILTERS,
+  FilterBar,
+  matchesCatalogFilters,
+  type Filters,
+} from '@/shared/components/catalog/FilterBar';
+import { MapView } from '@/shared/components/catalog/MapView';
 import { LocationButton } from '@/shared/components/catalog/LocationButton';
 import type { UserCoords } from '@/shared/hooks/useGeolocation';
+import { api } from '@/core/api/client';
+
+type ViewMode = 'split' | 'list' | 'map';
+
+const DESKTOP_QUERY = '(min-width: 1024px)';
+
+const VIEW_OPTIONS: { id: ViewMode; label: string; icon: LucideIcon }[] = [
+  { id: 'split', label: 'Dividida', icon: Columns2 },
+  { id: 'list', label: 'Solo lista', icon: LayoutList },
+  { id: 'map', label: 'Solo mapa', icon: Map },
+];
+
+function resolveInitialViewMode(): ViewMode {
+  if (typeof window === 'undefined') return 'split';
+  return window.matchMedia(DESKTOP_QUERY).matches ? 'split' : 'list';
+}
 
 interface Service {
   id: number;
@@ -23,8 +35,9 @@ interface Service {
   businessName?: string;
   title?: string;
   description?: string;
-  category?: string;
+  category?: 'Restaurantes' | 'Actividades' | 'Hospedaje';
   price?: number;
+  avgRating?: number;
   city?: string;
   location?: string;
   latitude?: number | string;
@@ -34,268 +47,249 @@ interface Service {
   images?: string[];
 }
 
+function getServiceName(service: Service) {
+  return service.businessName || service.title || 'Servicio';
+}
+
+function getServiceLocation(service: Service) {
+  return [service.city, service.location].filter(Boolean).join(', ') || 'Sin ubicación';
+}
+
+function CatalogViewToggle({
+  value,
+  onChange,
+}: {
+  value: ViewMode;
+  onChange: (mode: ViewMode) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Modo de visualización"
+      className="hidden items-center rounded-full border border-gray-200 bg-white p-1 shadow-sm lg:inline-flex"
+    >
+      {VIEW_OPTIONS.map((option) => {
+        const active = value === option.id;
+        const Icon = option.icon;
+
+        return (
+          <button
+            key={option.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(option.id)}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+              active
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <Icon className="h-4 w-4" />
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function HomeUsuarioLogueado() {
-
-  const [userPosition, setUserPosition] = useState<UserCoords | null>(null);
-
   const navigate = useNavigate();
+  const [viewMode, setViewMode] = useState<ViewMode>(resolveInitialViewMode);
+  const [userPosition, setUserPosition] = useState<UserCoords | null>(null);
+  const [services, setServices] = useState<Service[]>([]);
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [loading, setLoading] = useState(true);
 
-  const [showMap, setShowMap] =
-    useState(false);
+  useEffect(() => {
+    const media = window.matchMedia(DESKTOP_QUERY);
 
-  const [services, setServices] =
-    useState<Service[]>([]);
+    const syncMobileDefault = () => {
+      if (!media.matches) {
+        setViewMode((current) => (current === 'split' ? 'list' : current));
+      }
+    };
 
-  const [filters, setFilters] =
-    useState<Filters>({
-      search: '',
-      category: 'all',
-      price: 'all',
-      location: 'all',
-    });
-
-  const [loading, setLoading] =
-    useState(true);
+    media.addEventListener('change', syncMobileDefault);
+    return () => media.removeEventListener('change', syncMobileDefault);
+  }, []);
 
   useEffect(() => {
     loadServices();
   }, []);
 
   const loadServices = async () => {
-
     try {
+      const response = await api.get('/businesses');
 
-      const response =
-        await api.get('/businesses');
-
-      setServices(
-        Array.isArray(response.data)
-          ? response.data
-          : [response.data]
-      );
-
+      setServices(Array.isArray(response.data) ? response.data : [response.data]);
     } catch (error) {
-
       console.error(error);
-
       alert('Error cargando servicios');
-
     } finally {
-
       setLoading(false);
     }
   };
 
-  const getServiceName = (service: Service) =>
-    service.businessName || service.title || 'Servicio';
-
-  const getServiceLocation = (service: Service) =>
-    [service.city, service.location].filter(Boolean).join(', ') ||
-    'Sin ubicación';
-
   const categories = Array.from(
-    new Set(
-      services
-        .map((service) => service.category)
-        .filter(Boolean) as string[]
-    )
+    new Set(services.map((service) => service.category).filter(Boolean) as string[]),
   );
 
   const locations = Array.from(
     new Set(
       services
         .map((service) => service.city || service.location)
-        .filter(Boolean) as string[]
-    )
+        .filter(Boolean) as string[],
+    ),
   );
 
-  const matchesPrice = (price = 0) => {
-    if (filters.price === 'low') {
-      return price <= 50000;
-    }
+  const filteredServices = useMemo(
+    () =>
+      services.filter((service) =>
+        matchesCatalogFilters(
+          {
+            name: getServiceName(service),
+            description: service.description,
+            category: service.category,
+            city: service.city,
+            location: service.location,
+            price: service.price,
+            avgRating: service.avgRating,
+            latitude: service.latitude,
+            longitude: service.longitude,
+          },
+          filters,
+        ),
+      ),
+    [services, filters],
+  );
 
-    if (filters.price === 'medium') {
-      return price > 50000 && price <= 150000;
-    }
+  const mapServices = useMemo(
+    () =>
+      filteredServices.map((service) => ({
+        id: service.id.toString(),
+        name: getServiceName(service),
+        location: getServiceLocation(service),
+        image: service.imageUrl || '',
+        price: service.price || 0,
+        latitude: service.latitude,
+        longitude: service.longitude,
+      })),
+    [filteredServices],
+  );
 
-    if (filters.price === 'high') {
-      return price > 150000;
-    }
-
-    return true;
-  };
-
-  const filteredServices = services.filter((service) => {
-    const search = filters.search.trim().toLowerCase();
-    const searchableText = [
-      getServiceName(service),
-      service.description,
-      service.category,
-      service.city,
-      service.location,
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-
-    const matchesSearch = !search || searchableText.includes(search);
-    const matchesCategory =
-      filters.category === 'all' || service.category === filters.category;
-    const matchesLocation =
-      filters.location === 'all' ||
-      service.city === filters.location ||
-      service.location === filters.location;
-
-    return (
-      matchesSearch &&
-      matchesCategory &&
-      matchesLocation &&
-      matchesPrice(service.price)
-    );
-  });
+  const showList = viewMode !== 'map';
+  const showMap = viewMode !== 'list';
+  const showingMapOnMobile = viewMode === 'map';
 
   return (
     <div className="min-h-screen bg-gray-50">
-
       <FilterBar
         filters={filters}
         categories={categories}
         locations={locations}
         onFilterChange={setFilters}
+        userPosition={userPosition}
+        onUserPositionChange={setUserPosition}
       />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div
+        className={`mx-auto px-4 py-6 sm:px-6 lg:px-8 ${
+          viewMode === 'map' ? 'max-w-none' : 'max-w-7xl'
+        } ${showingMapOnMobile ? 'pb-24' : 'pb-28 lg:pb-6'}`}
+      >
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold">Explora experiencias únicas</h2>
+            <p className="mt-1 text-gray-600">
+              {filteredServices.length} resultados encontrados
+            </p>
+          </div>
 
-        <div className="lg:hidden mb-4">
-
-          <Button
-            onClick={() =>
-              setShowMap(!showMap)
-            }
-            variant="outline"
-            className="w-full rounded-full"
-          >
-
-            <Map className="h-4 w-4 mr-2" />
-
-            {showMap
-              ? 'Ver lista'
-              : 'Ver mapa'}
-
-          </Button>
-
+          <CatalogViewToggle value={viewMode} onChange={setViewMode} />
         </div>
 
-        <div className="flex gap-6">
-
-          <div className={`flex-1 ${showMap
-              ? 'hidden lg:block'
-              : ''
-            }`}>
-
-            <div className="mb-4">
-
-              <h2 className="text-2xl font-semibold">
-                Explora experiencias únicas
-              </h2>
-
-              <p className="text-gray-600 mt-1">
-                {filteredServices.length}
-                {' '}
-                resultados encontrados
-              </p>
-
-            </div>
-
-            {loading ? (
-
-              <p>Cargando...</p>
-
-            ) : (
-
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-
-                {filteredServices.map((service) => (
-
-                  <ServiceCard
-                    key={service.id}
-                    service={{
-                      id: service.id.toString(),
-                      // ProviderResponse.id = ProviderProfile.id (lo que exige startConversation)
-                      providerId: service.id,
-                      name: getServiceName(service),
-                      description:
-                        service.description || '',
-                      category:
-                        service.category || 'Actividades',
-                      price:
-                        service.price || 0,
-                      rating:
-                        0,
-                      location:
-                        getServiceLocation(service),
-                      image:
-                        service.imageUrl || '',
-                      imageUrls:
-                        service.imageUrls?.length
+        <div className={showList && showMap ? 'flex gap-6' : undefined}>
+          {showList && (
+            <div className={viewMode === 'split' ? 'min-w-0 flex-1' : 'w-full'}>
+              {loading ? (
+                <p>Cargando...</p>
+              ) : (
+                <div
+                  className={
+                    viewMode === 'list'
+                      ? 'grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+                      : 'grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3'
+                  }
+                >
+                  {filteredServices.map((service) => (
+                    <ServiceCard
+                      key={service.id}
+                      service={{
+                        id: service.id.toString(),
+                        // ProviderResponse.id = ProviderProfile.id (lo que exige startConversation)
+                        providerId: service.id,
+                        name: getServiceName(service),
+                        description: service.description || '',
+                        category: service.category || 'Actividades',
+                        price: service.price || 0,
+                        rating: service.avgRating || 0,
+                        location: getServiceLocation(service),
+                        image: service.imageUrl || '',
+                        imageUrls: service.imageUrls?.length
                           ? service.imageUrls
                           : service.images,
-                      lat:
-                        0,
-                      lng:
-                        0,
-                    }}
-                  />
-
-                ))}
-
-              </div>
-
-            )}
-
-          </div>
-
-          <div className={`${showMap
-              ? 'block'
-              : 'hidden lg:block'
-            } w-full lg:w-[400px] xl:w-[500px]`}>
-
-            <div className="sticky top-32">
-
-              {/* 🆕 Botón de geolocalización, arriba del mapa */}
-              <div className="mb-3">
-                <LocationButton onLocationChange={setUserPosition} />
-              </div>
-
-              <div className="h-[calc(100vh-200px)]">
-
-                <MapView
-                  services={filteredServices.map(s => ({
-                    id: s.id.toString(),
-                    name: getServiceName(s),
-                    location: getServiceLocation(s),
-                    image: s.imageUrl || '',
-                    price: s.price || 0,
-                    latitude: s.latitude,
-                    longitude: s.longitude,
-                  }))}
-                  onServiceClick={(service) =>
-                    navigate(
-                      `/booking/${service.id}`
-                    )
-                  } userPosition={userPosition}
-                />
-
-              </div>
-
+                        lat: 0,
+                        lng: 0,
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
+          )}
 
-          </div>
+          {showMap && (
+            <div
+              className={
+                viewMode === 'map'
+                  ? 'w-full'
+                  : 'hidden w-full lg:block lg:w-[400px] xl:w-[500px]'
+              }
+            >
+              <div className={viewMode === 'map' ? undefined : 'sticky top-32'}>
+                <div className="mb-3">
+                  <LocationButton onLocationChange={setUserPosition} />
+                </div>
 
+                <div
+                  className={
+                    viewMode === 'map'
+                      ? 'h-[calc(100vh-16rem)] min-h-[24rem]'
+                      : 'h-[calc(100vh-13rem)]'
+                  }
+                >
+                  <MapView
+                    layoutKey={viewMode}
+                    services={mapServices}
+                    onServiceClick={(service) => navigate(`/booking/${service.id}`)}
+                    userPosition={userPosition}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-
       </div>
 
+      <button
+        type="button"
+        onClick={() => setViewMode(viewMode === 'map' ? 'list' : 'map')}
+        className="fixed bottom-6 left-1/2 z-40 inline-flex -translate-x-1/2 items-center gap-2 rounded-full bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg transition-colors hover:bg-blue-700 lg:hidden"
+      >
+        {viewMode === 'map' ? 'Ver lista 📄' : 'Ver mapa 🗺️'}
+      </button>
     </div>
   );
 }

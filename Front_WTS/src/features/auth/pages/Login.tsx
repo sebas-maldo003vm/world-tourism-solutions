@@ -13,10 +13,11 @@ import {
   CardTitle,
 } from '@/shared/components/ui/card';
 import { api } from '@/core/api/client';
-import { notifyAuthChanged } from '@/features/catalog/hooks/useFavorites';
+import { useAuth } from '@/features/auth/context/AuthContext';
 
 export function Login() {
   const navigate = useNavigate();
+  const { setUser } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -36,8 +37,7 @@ export function Login() {
       const data = response.data;
 
       localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-      notifyAuthChanged();
+      setUser(data.user);
 
       switch (data.user.role) {
         case 'ADMIN':

@@ -5,43 +5,45 @@ import { Input } from '@/shared/components/ui/input';
 import { Send, Paperclip, MoreVertical, ArrowLeft, Loader2, AlertCircle, Bot, Headphones } from 'lucide-react';
 import { Alert, AlertDescription } from '@/shared/components/ui/alert';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/shared/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/shared/components/ui/dialog';
-import {
   chatApi,
   type ChatMessage,
   type ConversationItem,
-  type SupportUrgency,
 } from '@/features/chat/services/chatApi';
+import { SupportTicketModal } from '@/features/chat/components/SupportTicketModal';
 import {
   conversationSubtitle,
   conversationTitle,
   counterpartyAvatarUrl,
-  initialsFromName,
+  inquirySubtitle,
   isBotConversation,
   isDirectProviderChat,
   isHumanSupportChat,
   isSupportType,
   providerAvatarUrl,
 } from '@/features/chat/utils/conversationDisplay';
+import { useAuth } from '@/features/auth/context/AuthContext';
+import { api } from '@/core/api/client';
+import { UserAvatar } from '@/shared/components/UserAvatar';
 
 const POLL_INTERVAL_MS = 5000;
+const DRAFT_CONVERSATION_ID = -1;
 /** Altura del Header global (`h-16` = 4rem). */
 const HEADER_HEIGHT = '4rem';
 
 type InboxTab = 'direct' | 'support';
+
+function inboxDescription(role: string | null, tab: InboxTab) {
+  if (role === 'ADMIN' || role === 'SUPPORT') {
+    return 'Cola de atención y tickets de soporte de la plataforma';
+  }
+  if (tab === 'support') {
+    return 'Tickets de soporte con el equipo de la plataforma';
+  }
+  if (role === 'PROVIDER') {
+    return 'Mensajes y consultas de clientes sobre tus publicaciones';
+  }
+  return 'Consultas y conversaciones con negocios del catálogo';
+}
 
 function formatTime(value: string) {
   return new Date(value).toLocaleString('es-CO', {
@@ -52,73 +54,146 @@ function formatTime(value: string) {
   });
 }
 
+function isEphemeralConversation(conv: ConversationItem | null | undefined) {
+  return Boolean(conv && (conv.ephemeral || conv.id === DRAFT_CONVERSATION_ID));
+}
+
+function toPositiveId(value: string | null) {
+  if (!value) return null;
+  const id = Number(value);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function readApiError(error: unknown, fallback: string) {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const message = (error as { response?: { data?: { message?: string } } }).response?.data
+      ?.message;
+    if (message) return message;
+  }
+  return fallback;
+}
+
+/** Un hilo persistido por turista y negocio. Si hay subject, se prefiere el del mismo servicio. */
+function findProviderThread(
+  list: ConversationItem[],
+  providerId: number,
+  serviceName: string,
+) {
+  const matches = list.filter((conv) => {
+    if (!isDirectProviderChat(conv)) return false;
+    return (conv.providerId ?? conv.providerProfileId) === providerId;
+  });
+  if (serviceName) {
+    const byService = matches.find((conv) => {
+      const stored = (conv.serviceName || conv.subject || '').trim();
+      return stored === serviceName;
+    });
+    if (byService) return byService;
+  }
+  return matches[0] ?? null;
+}
+
+function withInquiryContext(
+  conv: ConversationItem,
+  serviceId: number | null,
+  serviceName: string,
+): ConversationItem {
+  if (!serviceName && serviceId == null) return conv;
+  return {
+    ...conv,
+    serviceId: serviceId ?? conv.serviceId,
+    serviceName: serviceName || conv.serviceName,
+  };
+}
+
+function buildDraftConversation(input: {
+  providerId: number;
+  serviceId: number | null;
+  serviceName: string;
+  providerName: string;
+}): ConversationItem {
+  const name = input.providerName.trim() || 'Proveedor';
+  return {
+    id: DRAFT_CONVERSATION_ID,
+    ephemeral: true,
+    displayName: name,
+    businessName: name,
+    providerProfileName: name,
+    lastMessage: '',
+    lastMessageAt: new Date().toISOString(),
+    unreadCount: 0,
+    conversationType: 'CLIENT_TO_PROVIDER',
+    providerId: input.providerId,
+    providerProfileId: input.providerId,
+    serviceId: input.serviceId,
+    serviceName: input.serviceName || null,
+    subject: input.serviceName || undefined,
+  };
+}
+
 function sortByLastMessage(list: ConversationItem[]) {
   return [...list].sort(
     (a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime(),
   );
 }
 
-function AvatarBadge({
-  url,
-  name,
-  className = 'h-10 w-10',
-}: {
-  url: string | null;
-  name: string;
-  className?: string;
-}) {
-  if (url) {
-    return (
-      <img
-        src={url}
-        alt={name}
-        className={`${className} shrink-0 rounded-full object-cover bg-gray-100`}
-      />
-    );
+function messageAvatarSrc(
+  message: ChatMessage,
+  conversation: ConversationItem | null,
+  ownPictureUrl?: string | null,
+) {
+  if (message.isOwn) {
+    return ownPictureUrl;
   }
-  return (
-    <div
-      className={`${className} flex shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600`}
-    >
-      {initialsFromName(name)}
-    </div>
-  );
+
+  if (!conversation) {
+    return null;
+  }
+
+  if (conversation.clientId != null && message.senderId === conversation.clientId) {
+    return conversation.clientAvatarUrl;
+  }
+
+  if (
+    conversation.otherParticipantId != null &&
+    message.senderId === conversation.otherParticipantId
+  ) {
+    return conversation.otherParticipantAvatarUrl;
+  }
+
+  return conversation.logoUrl || conversation.otherParticipantAvatarUrl || null;
 }
 
 export function Chat() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
+  const viewerRole = user?.role ?? null;
+  const isAdmin = viewerRole === 'ADMIN';
+  const isSupport = viewerRole === 'SUPPORT';
+  const isStaff = isAdmin || isSupport;
+  const isProvider = viewerRole === 'PROVIDER';
   const [directConversations, setDirectConversations] = useState<ConversationItem[]>([]);
   const [supportConversations, setSupportConversations] = useState<ConversationItem[]>([]);
-  const [inboxTab, setInboxTab] = useState<InboxTab>('direct');
+  const [inboxTab, setInboxTab] = useState<InboxTab>(isStaff ? 'support' : 'direct');
   const [selectedConversation, setSelectedConversation] = useState<ConversationItem | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageText, setMessageText] = useState('');
   const [showChat, setShowChat] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
-  const [supportMessage, setSupportMessage] = useState('');
-  const [serviceName, setServiceName] = useState('');
-  const [supportUrgency, setSupportUrgency] = useState<SupportUrgency>('MEDIUM');
   const [loading, setLoading] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const openedContactKey = useRef<string | null>(null);
 
-  const currentUser = (() => {
-    try {
-      const stored = localStorage.getItem('user');
-      return stored ? (JSON.parse(stored) as { role: string }) : null;
-    } catch {
-      return null;
+  useEffect(() => {
+    if (isStaff && inboxTab !== 'support') {
+      setInboxTab('support');
     }
-  })();
-  const viewerRole = currentUser?.role ?? null;
-  const isAdmin = viewerRole === 'ADMIN';
-  const isSupport = viewerRole === 'SUPPORT';
-  const isStaff = isAdmin || isSupport;
-  const isProvider = viewerRole === 'PROVIDER';
+  }, [isStaff, inboxTab]);
 
   const visibleConversations =
     inboxTab === 'direct' ? directConversations : supportConversations;
@@ -163,13 +238,90 @@ export function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, selectedConversation?.id]);
 
+  const discardDraft = useCallback(() => {
+    setSelectedConversation((current) => (isEphemeralConversation(current) ? null : current));
+    setMessages([]);
+    setMessageText('');
+    setShowChat(false);
+    if (searchParams.get('providerId') || searchParams.get('serviceId')) {
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) {
       navigate('/login');
       return;
     }
-    loadConversations().then(({ providerChats, supportChats, all }) => {
+
+    let cancelled = false;
+
+    loadConversations().then(async ({ all }) => {
+      if (cancelled) return;
+
+      const providerId = toPositiveId(searchParams.get('providerId'));
+      const serviceId = toPositiveId(searchParams.get('serviceId'));
+      const inquiryName = searchParams.get('serviceName')?.trim() || '';
+      const providerName = searchParams.get('providerName')?.trim() || '';
+
+      if (providerId && !isStaff) {
+        const contactKey = `${providerId}|${serviceId ?? ''}|${inquiryName}`;
+        if (openedContactKey.current === contactKey) {
+          return;
+        }
+        openedContactKey.current = contactKey;
+        setMessageText('');
+        const existing = findProviderThread(all, providerId, inquiryName);
+        if (existing) {
+          setInboxTab('direct');
+          setSelectedConversation(withInquiryContext(existing, serviceId, inquiryName));
+          setShowChat(true);
+          return;
+        }
+
+        setInboxTab('direct');
+        setMessages([]);
+        setSelectedConversation(
+          buildDraftConversation({
+            providerId,
+            serviceId,
+            serviceName: inquiryName,
+            providerName,
+          }),
+        );
+        setShowChat(true);
+
+        try {
+          const { data } = await api.get<{
+            businessName?: string;
+            logoUrl?: string;
+            category?: string;
+            city?: string;
+          }>(`/businesses/${providerId}`);
+          if (cancelled) return;
+          const name = data.businessName?.trim() || providerName || 'Proveedor';
+          setSelectedConversation((current) => {
+            if (!current || !isEphemeralConversation(current)) return current;
+            if ((current.providerId ?? current.providerProfileId) !== providerId) return current;
+            return {
+              ...current,
+              displayName: name,
+              businessName: name,
+              providerProfileName: name,
+              logoUrl: data.logoUrl || current.logoUrl,
+              category: data.category || current.category,
+              city: data.city || current.city,
+            };
+          });
+        } catch {
+          // La cabecera usa el nombre que vino en la URL.
+        }
+        return;
+      }
+
+      openedContactKey.current = null;
+
       const conversationParam = searchParams.get('conversation');
       if (conversationParam) {
         const targetId = Number(conversationParam);
@@ -189,20 +341,29 @@ export function Chat() {
           }
         }
         if (target) {
-          setInboxTab(isSupportType(target.conversationType) ? 'support' : 'direct');
+          const tab: InboxTab = isSupportType(target.conversationType) ? 'support' : 'direct';
+          if (isStaff && tab === 'direct') {
+            setInboxTab('support');
+            return;
+          }
+          setInboxTab(tab);
           setSelectedConversation(target);
           setShowChat(true);
           return;
         }
       }
-      if (isStaff && supportChats.length > 0 && providerChats.length === 0) {
+      if (isStaff) {
         setInboxTab('support');
       }
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [navigate, loadConversations, searchParams, isStaff, location.state]);
 
   useEffect(() => {
-    if (!selectedConversation) return;
+    if (!selectedConversation || isEphemeralConversation(selectedConversation)) return;
     loadMessages(selectedConversation.id);
     const interval = setInterval(() => {
       loadMessages(selectedConversation.id);
@@ -214,14 +375,48 @@ export function Chat() {
     setSelectedConversation(conv);
     setShowChat(true);
     setShowSupport(false);
+    if (searchParams.get('providerId') || searchParams.get('conversation') !== String(conv.id)) {
+      setSearchParams({ conversation: String(conv.id) }, { replace: true });
+    }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageText.trim() || !selectedConversation) return;
     setSending(true);
+    const content = messageText.trim();
     try {
-      const content = messageText.trim();
+      if (isEphemeralConversation(selectedConversation)) {
+        const providerProfileId =
+          selectedConversation.providerProfileId ?? selectedConversation.providerId;
+        if (!providerProfileId) {
+          setError('No se pudo identificar al proveedor de esta consulta.');
+          return;
+        }
+        const { data: created } = await chatApi.startConversation({
+          providerProfileId,
+          initialMessage: content,
+          serviceName: selectedConversation.serviceName || selectedConversation.subject || undefined,
+          serviceId: selectedConversation.serviceId ?? undefined,
+        });
+        const persisted = withInquiryContext(
+          {
+            ...created,
+            ephemeral: false,
+            subject: created.subject || selectedConversation.serviceName || created.subject,
+          },
+          selectedConversation.serviceId ?? null,
+          selectedConversation.serviceName || '',
+        );
+        setSelectedConversation(persisted);
+        setMessageText('');
+        setSearchParams({ conversation: String(created.id) }, { replace: true });
+        const { data: history } = await chatApi.getMessages(created.id);
+        setMessages(history);
+        await loadConversations();
+        return;
+      }
+
       const { data } =
         isStaff && isSupportConversation
           ? selectedConversation.supportStatus === 'NEEDS_HUMAN_SUPPORT'
@@ -231,31 +426,18 @@ export function Chat() {
       setMessages((prev) => [...prev, data]);
       setMessageText('');
       await loadConversations();
-    } catch {
-      setError('No se pudo enviar el mensaje.');
+    } catch (error) {
+      setError(readApiError(error, 'No se pudo enviar el mensaje.'));
     } finally {
       setSending(false);
     }
   };
 
-  const handleSendSupport = async () => {
-    if (!supportMessage.trim()) return;
+  const handleSendSupport = async (payload: { subject: string; initialMessage: string }) => {
     setSending(true);
     try {
-      const payload = {
-        message: supportMessage.trim(),
-        serviceName:
-          serviceName.trim() ||
-          selectedConversation?.businessName ||
-          selectedConversation?.providerProfileName ||
-          undefined,
-        urgency: supportUrgency,
-      };
       const { data } = await chatApi.createSupportTicket(payload);
       setShowSupport(false);
-      setSupportMessage('');
-      setServiceName('');
-      setSupportUrgency('MEDIUM');
       await loadConversations();
       const supportConv: ConversationItem = {
         id: data.id,
@@ -324,35 +506,41 @@ export function Chat() {
           <div className="flex-none border-b p-4">
             <h2 className="text-xl font-semibold">Bandeja</h2>
             <p className="mt-1 text-xs text-gray-500">
-              {isProvider
-                ? 'Clientes que te contactaron · soporte aparte'
-                : isStaff
-                  ? 'Chats cliente↔negocio y tickets humanos (sin bot)'
-                  : 'Chats con proveedores · soporte en pestaña aparte'}
+              {inboxDescription(viewerRole, inboxTab)}
             </p>
 
             <div className="mt-3 flex gap-1 rounded-lg bg-gray-100 p-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setInboxTab('direct');
-                  if (selectedConversation && isSupportType(selectedConversation.conversationType)) {
-                    setSelectedConversation(null);
-                    setShowChat(false);
-                  }
-                }}
-                className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${
-                  inboxTab === 'direct'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                {isProvider ? 'Clientes' : 'Proveedores'}
-              </button>
+              {!isStaff && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInboxTab('direct');
+                    if (isEphemeralConversation(selectedConversation)) {
+                      discardDraft();
+                      return;
+                    }
+                    if (selectedConversation && isSupportType(selectedConversation.conversationType)) {
+                      setSelectedConversation(null);
+                      setShowChat(false);
+                    }
+                  }}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${
+                    inboxTab === 'direct'
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  {isProvider ? 'Clientes' : 'Proveedores'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
                   setInboxTab('support');
+                  if (isEphemeralConversation(selectedConversation)) {
+                    discardDraft();
+                    return;
+                  }
                   if (
                     selectedConversation &&
                     !isSupportType(selectedConversation.conversationType)
@@ -387,7 +575,11 @@ export function Chat() {
               </div>
             ) : visibleConversations.length === 0 ? (
               <div className="space-y-3 p-4 text-center text-sm text-gray-500">
-                {inboxTab === 'direct' ? (
+                {isEphemeralConversation(selectedConversation) ? (
+                  <p>
+                    Borrador abierto. No aparecerá en la bandeja hasta que envíes un mensaje.
+                  </p>
+                ) : inboxTab === 'direct' ? (
                   <p>
                     {isProvider
                       ? 'Aún no tienes mensajes de clientes.'
@@ -407,6 +599,35 @@ export function Chat() {
               </div>
             ) : (
               <div className="divide-y">
+                {inboxTab === 'direct' &&
+                  selectedConversation &&
+                  isEphemeralConversation(selectedConversation) && (
+                    <div className="bg-amber-50 p-4">
+                      <div className="flex gap-3">
+                        <UserAvatar
+                          src={listAvatar(selectedConversation)}
+                          name={listTitle(selectedConversation)}
+                          size="md"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <h3 className="truncate text-sm font-semibold">
+                              {listTitle(selectedConversation)}
+                            </h3>
+                            <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                              Borrador
+                            </span>
+                          </div>
+                          <p className="truncate text-sm text-gray-600">
+                            {inquirySubtitle(selectedConversation) || 'Sin mensajes'}
+                          </p>
+                          <p className="mt-1 text-xs text-amber-800">
+                            No se guarda hasta enviar
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 {visibleConversations.map((conv) => {
                   const title = listTitle(conv);
                   const avatar = listAvatar(conv);
@@ -425,12 +646,13 @@ export function Chat() {
                     >
                       <div className="flex gap-3">
                         <div className="relative shrink-0">
-                          <AvatarBadge url={avatar} name={title} />
+                          <UserAvatar src={avatar} name={title} size="md" />
                           {businessAvatar && (
-                            <img
+                            <UserAvatar
                               src={businessAvatar}
-                              alt={conv.businessName || 'Negocio'}
-                              className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-2 border-white object-cover bg-gray-100"
+                              name={conv.businessName || 'Negocio'}
+                              size="sm"
+                              className="absolute -bottom-1 -right-1 h-5 w-5 border-2 border-white text-[8px]"
                             />
                           )}
                         </div>
@@ -459,6 +681,11 @@ export function Chat() {
                           )}
                           {isSupportType(conv.conversationType) && (
                             <span className="mt-1 inline-block text-xs text-red-500">Soporte</span>
+                          )}
+                          {inquirySubtitle(conv) && (
+                            <span className="mt-1 block truncate text-xs text-gray-500">
+                              {inquirySubtitle(conv)}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -503,33 +730,46 @@ export function Chat() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 rounded-full"
-                      onClick={() => setShowChat(false)}
+                      onClick={() => {
+                        if (isEphemeralConversation(selectedConversation)) {
+                          discardDraft();
+                          return;
+                        }
+                        setShowChat(false);
+                      }}
                     >
                       <ArrowLeft className="h-4 w-4" />
                     </Button>
                   </div>
                   <div className="relative hidden shrink-0 sm:block">
-                    <AvatarBadge
-                      url={listAvatar(selectedConversation)}
+                    <UserAvatar
+                      src={listAvatar(selectedConversation)}
                       name={listTitle(selectedConversation)}
+                      size="md"
                       className="h-11 w-11"
                     />
                     {isStaff &&
                       selectedConversation.conversationType === 'CLIENT_TO_PROVIDER' &&
                       providerAvatarUrl(selectedConversation) && (
-                        <img
-                          src={providerAvatarUrl(selectedConversation)!}
-                          alt={selectedConversation.businessName || 'Negocio'}
-                          className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full border-2 border-white object-cover"
+                        <UserAvatar
+                          src={providerAvatarUrl(selectedConversation)}
+                          name={selectedConversation.businessName || 'Negocio'}
+                          size="sm"
+                          className="absolute -bottom-1 -right-1 h-6 w-6 border-2 border-white text-[9px]"
                         />
                       )}
                   </div>
                   <div className="min-w-0">
                     <h2 className="truncate font-semibold">
                       {listTitle(selectedConversation)}
+                      {isEphemeralConversation(selectedConversation) && (
+                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                          Borrador
+                        </span>
+                      )}
                     </h2>
                     <p className="truncate text-sm text-gray-600">
-                      {listSubtitle(selectedConversation)}
+                      {inquirySubtitle(selectedConversation) || listSubtitle(selectedConversation)}
                     </p>
                     {isStaff &&
                       selectedConversation.conversationType === 'CLIENT_TO_PROVIDER' && (
@@ -565,12 +805,23 @@ export function Chat() {
                   <div className="flex justify-center p-8">
                     <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
                   </div>
+                ) : messages.length === 0 && isEphemeralConversation(selectedConversation) ? (
+                  <p className="px-6 pt-10 text-center text-sm text-gray-500">
+                    Escribe tu consulta. Si sales sin enviar, este chat no se guardará.
+                  </p>
                 ) : (
                   messages.map((message) => (
                     <div
                       key={message.id}
-                      className={`flex ${message.isOwn ? 'justify-end' : 'justify-start'}`}
+                      className={`flex items-end gap-2 ${message.isOwn ? 'justify-end' : 'justify-start'}`}
                     >
+                      {!message.isOwn && (
+                        <UserAvatar
+                          src={messageAvatarSrc(message, selectedConversation)}
+                          name={message.senderName}
+                          size="sm"
+                        />
+                      )}
                       <div
                         className={`max-w-md rounded-2xl px-4 py-2 ${
                           message.isOwn
@@ -588,6 +839,17 @@ export function Chat() {
                           {formatTime(message.sentAt)}
                         </span>
                       </div>
+                      {message.isOwn && (
+                        <UserAvatar
+                          src={messageAvatarSrc(
+                            message,
+                            selectedConversation,
+                            user?.profilePictureUrl,
+                          )}
+                          name={user?.name || message.senderName}
+                          size="sm"
+                        />
+                      )}
                     </div>
                   ))
                 )}
@@ -625,73 +887,12 @@ export function Chat() {
         </div>
       </div>
 
-      <Dialog
+      <SupportTicketModal
         open={showSupport}
-        onOpenChange={(open) => {
-          setShowSupport(open);
-          if (!open) {
-            setSupportMessage('');
-            setServiceName('');
-            setSupportUrgency('MEDIUM');
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-center sm:text-center">Soporte</DialogTitle>
-            <DialogDescription className="text-center sm:text-center">
-              Describe tu solicitud y el equipo de soporte te responderá lo antes posible. Para
-              dudas rápidas usa el asistente virtual (widget).
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <Input
-              placeholder="Servicio relacionado (opcional)"
-              value={serviceName}
-              onChange={(e) => setServiceName(e.target.value)}
-            />
-            <Input
-              placeholder="Describe tu solicitud..."
-              value={supportMessage}
-              onChange={(e) => setSupportMessage(e.target.value)}
-            />
-            <Select
-              value={supportUrgency}
-              onValueChange={(value) => setSupportUrgency(value as SupportUrgency)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Urgencia" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="LOW">Baja</SelectItem>
-                <SelectItem value="MEDIUM">Media</SelectItem>
-                <SelectItem value="HIGH">Alta</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <DialogFooter className="flex-row gap-2 sm:justify-stretch">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => setShowSupport(false)}
-              disabled={sending}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              className="flex-1 bg-red-500 hover:bg-red-600"
-              onClick={handleSendSupport}
-              disabled={sending || !supportMessage.trim()}
-            >
-              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enviar'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={setShowSupport}
+        onSubmit={handleSendSupport}
+        submitting={sending}
+      />
     </div>
   );
 }

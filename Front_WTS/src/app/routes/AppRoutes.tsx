@@ -2,7 +2,6 @@ import { createBrowserRouter } from 'react-router-dom';
 import { Layout } from '@/shared/components/layout/Layout';
 import { Home } from '@/features/catalog/pages/Home';
 import { HomeUsuarioLogueado } from '@/features/catalog/pages/HomeUsuarioLogueado';
-import { MapPage } from '@/features/catalog/pages/MapPage';
 import { Login } from '@/features/auth/pages/Login';
 import { Register } from '@/features/auth/pages/Register';
 import { Booking } from '@/features/bookings/pages/Booking';
@@ -10,6 +9,7 @@ import { BookingDetail } from '@/features/bookings/pages/BookingDetail';
 import { Itinerary } from '@/features/bookings/pages/Itinerary';
 import { Reviews } from '@/features/reviews/pages/Reviews';
 import { AccesorDashboard } from '@/features/provider/pages/AccesorDashboard';
+import { ProviderAnalytics } from '@/features/provider/pages/ProviderAnalytics';
 import { ServiceForm } from '@/features/provider/pages/ServiceForm';
 import { Profile } from '@/features/profile/pages/Profile';
 import { EditProfile } from '@/features/profile/pages/EditProfile';
@@ -26,7 +26,6 @@ export const router = createBrowserRouter([
       { index: true, Component: Home },
       { path: 'login', Component: Login },
       { path: 'register', Component: Register },
-      { path: 'map', Component: MapPage },
       { path: 'booking/:id', Component: Booking },
       { path: 'reviews/:id', Component: Reviews },
       { path: 'booking-detail/:id', Component: BookingDetail },
@@ -45,6 +44,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute allowedRoles={['PROVIDER']}>
             <AccesorDashboard />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'analitica',
+        element: (
+          <ProtectedRoute allowedRoles={['PROVIDER']}>
+            <ProviderAnalytics />
           </ProtectedRoute>
         ),
       },
@@ -98,6 +105,14 @@ export const router = createBrowserRouter([
       },
       {
         path: 'chat',
+        element: (
+          <ProtectedRoute>
+            <Chat />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'messages',
         element: (
           <ProtectedRoute>
             <Chat />

@@ -79,30 +79,33 @@ public class ChatBotService {
 	private final UserRepository userRepository;
 	private final ProviderProfileRepository providerProfileRepository;
 	private final PasswordEncoder passwordEncoder;
+	private final ConversationService conversationService;
 
 	public ChatBotService(
 			ConversationRepository conversationRepository,
 			MessageRepository messageRepository,
 			UserRepository userRepository,
 			ProviderProfileRepository providerProfileRepository,
-			PasswordEncoder passwordEncoder) {
+			PasswordEncoder passwordEncoder,
+			ConversationService conversationService) {
 		this.conversationRepository = conversationRepository;
 		this.messageRepository = messageRepository;
 		this.userRepository = userRepository;
 		this.providerProfileRepository = providerProfileRepository;
 		this.passwordEncoder = passwordEncoder;
+		this.conversationService = conversationService;
 	}
 
 	@Transactional
 	public ChatBotMessageResponse procesarMensaje(AppUser user, ChatBotMessageRequest request) {
-		validateAuthenticated(user);
-		if (user.getRole() != Role.USER && user.getRole() != Role.PROVIDER) {
+		AppUser current = conversationService.requireAuthenticatedUser(user);
+		if (current.getRole() != Role.USER && current.getRole() != Role.PROVIDER) {
 			throw new IllegalArgumentException("Solo turistas y proveedores pueden usar el asistente virtual.");
 		}
 
 		String content = request.content().trim();
-		Conversation conversation = resolveSession(user, request.conversationId());
-		Message userMessage = appendMessage(conversation, user, content);
+		Conversation conversation = resolveSession(current, request.conversationId());
+		Message userMessage = appendMessage(conversation, current, content);
 
 		MatchResult match = matchAutomatedReply(content);
 		AppUser bot = ensureBotUser();
@@ -123,15 +126,16 @@ public class ChatBotService {
 					true,
 					match.reply(),
 					match.suggestions(),
-					MessageResponse.from(userMessage, user.getId()),
-					MessageResponse.from(botMessage, user.getId()));
+					MessageResponse.from(userMessage, current.getId()),
+					MessageResponse.from(botMessage, current.getId()));
 		}
 
-		conversation.setSupportStatus(SupportStatus.NEEDS_HUMAN_SUPPORT);
+		conversation.setSupportStatus(SupportStatus.UNASSIGNED);
+		conversation.setAssignedAdvisor(null);
 		conversation.setUrgency(SupportUrgency.MEDIUM);
 		if (conversation.getConversationType() == ConversationType.CATALOG_INQUIRY
 				|| conversation.isBotSession()) {
-			ConversationType humanType = user.getRole() == Role.PROVIDER
+			ConversationType humanType = current.getRole() == Role.PROVIDER
 					? ConversationType.PROVIDER_TO_SUPPORT
 					: ConversationType.CLIENT_TO_SUPPORT;
 			conversation.setConversationType(humanType);
@@ -147,20 +151,23 @@ public class ChatBotService {
 
 		return new ChatBotMessageResponse(
 				conversation.getId(),
-				SupportStatus.NEEDS_HUMAN_SUPPORT,
+				conversation.getSupportStatus(),
 				false,
 				escalationReply,
 				List.of(),
-				MessageResponse.from(userMessage, user.getId()),
-				MessageResponse.from(botMessage, user.getId()));
+				MessageResponse.from(userMessage, current.getId()),
+				MessageResponse.from(botMessage, current.getId()));
 	}
 
 	@Transactional(readOnly = true)
 	public List<SupportTicketResponse> listarTicketsActivos(AppUser staff) {
-		validateStaff(staff);
-		return conversationRepository
-				.findBySupportStatusOrderByLastMessageAtDesc(SupportStatus.NEEDS_HUMAN_SUPPORT)
+		AppUser current = conversationService.requireAuthenticatedUser(staff);
+		validateStaff(current);
+		return conversationService.listStaffSupportTickets(current)
 				.stream()
+				.filter(conversation -> conversation.getSupportStatus() == SupportStatus.NEEDS_HUMAN_SUPPORT
+						|| (conversation.getAssignedAdvisor() == null
+								&& conversation.getSupportStatus() == SupportStatus.UNASSIGNED))
 				.map(conversation -> {
 					loadMessages(conversation);
 					return SupportTicketResponse.from(conversation);
@@ -170,9 +177,9 @@ public class ChatBotService {
 
 	@Transactional
 	public MessageResponse responderTicket(AppUser staff, Long conversationId, SendMessageRequest request) {
-		validateStaff(staff);
-		Conversation conversation = conversationRepository.findById(conversationId)
-				.orElseThrow(() -> new IllegalArgumentException("El ticket de soporte no existe."));
+		AppUser current = conversationService.requireAuthenticatedUser(staff);
+		validateStaff(current);
+		Conversation conversation = conversationService.requireReadable(current, conversationId);
 		if (!conversation.getConversationType().isHumanSupport()) {
 			throw new IllegalArgumentException("La conversación indicada no es un ticket de soporte.");
 		}
@@ -181,7 +188,7 @@ public class ChatBotService {
 		}
 
 		if (conversation.getAssignedAdvisor() == null) {
-			conversation.setAssignedAdvisor(staff);
+			conversation.setAssignedAdvisor(current);
 		}
 		if (conversation.getSupportStatus() == SupportStatus.OPEN
 				|| conversation.getSupportStatus() == SupportStatus.UNASSIGNED
@@ -190,16 +197,17 @@ public class ChatBotService {
 		}
 		conversationRepository.save(conversation);
 
-		Message message = appendMessage(conversation, staff, request.content().trim());
-		return MessageResponse.from(message, staff.getId());
+		Message message = appendMessage(conversation, current, request.content().trim());
+		return MessageResponse.from(message, current.getId());
 	}
 
 	private Conversation resolveSession(AppUser user, Long conversationId) {
 		if (conversationId != null) {
 			Conversation existing = conversationRepository.findById(conversationId)
 					.orElseThrow(() -> new IllegalArgumentException("La sesión de chat no existe."));
-			if (!existing.getUser().getId().equals(user.getId())) {
-				throw new IllegalArgumentException("No tienes acceso a esta sesión de chat.");
+			conversationService.assertCanAccess(user, existing);
+			if (existing.getConversationType() != null && existing.getConversationType().isHumanSupport()) {
+				throw new IllegalArgumentException("La conversación indicada no es una sesión del asistente.");
 			}
 			if (!existing.isBotSession()
 					&& existing.getConversationType() != ConversationType.CATALOG_INQUIRY) {
@@ -322,19 +330,20 @@ public class ChatBotService {
 
 	private Message appendMessage(Conversation conversation, AppUser sender, String content) {
 		Message message = new Message();
-		message.setConversation(conversation);
 		message.setSender(sender);
 		message.setContent(content);
 		message.setSentAt(Instant.now());
-		message = messageRepository.save(message);
+		if (conversation.getId() == null) {
+			conversationRepository.saveAndFlush(conversation);
+		}
+		conversation.addMessage(message);
 		conversation.setLastMessageAt(message.getSentAt());
-		conversationRepository.save(conversation);
-		return message;
+		return messageRepository.save(message);
 	}
 
 	private void loadMessages(Conversation conversation) {
 		List<Message> messages = messageRepository.findByConversationIdOrderBySentAtAsc(conversation.getId());
-		conversation.setMessages(new ArrayList<>(messages));
+		conversation.syncMessages(messages);
 	}
 
 	private void validateAuthenticated(AppUser user) {

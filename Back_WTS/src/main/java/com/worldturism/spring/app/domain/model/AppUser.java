@@ -16,6 +16,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -44,7 +46,8 @@ public class AppUser implements UserDetails {
 	private String profilePictureUrl;
 
 	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, length = 20)
+	@JdbcTypeCode(SqlTypes.NAMED_ENUM)
+	@Column(nullable = false, columnDefinition = "role_enum")
 	private Role role;
 
 	@Column(nullable = false, columnDefinition = "boolean default true")

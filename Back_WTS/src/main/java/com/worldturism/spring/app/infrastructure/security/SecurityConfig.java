@@ -1,6 +1,7 @@
 package com.worldturism.spring.app.infrastructure.security;
 
 import com.worldturism.spring.app.infrastructure.persistence.repository.UserRepository;
+import jakarta.servlet.DispatcherType;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -55,6 +56,11 @@ public class SecurityConfig {
 						}))
 				.authorizeHttpRequests(auth -> auth
 						.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+						// El dispatcher ERROR no debe exigir JWT: si no, un fallo de
+						// registro/login se enmascara como 401 "Se requiere JWT".
+						.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+						.requestMatchers("/error").permitAll()
+						.requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
 						.requestMatchers("/api/auth/register", "/api/auth/login").permitAll()
 						.requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
 						.requestMatchers("/uploads/**").permitAll()
@@ -69,6 +75,8 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.GET, "/api/support/conversations/inbox")
 								.hasAnyRole("ADMIN", "SUPPORT")
 						.requestMatchers("/api/support/**").hasAnyRole("ADMIN", "SUPPORT", "USER", "PROVIDER")
+						// Urgencia y estado del ticket: solo mesa de ayuda
+						.requestMatchers(HttpMethod.PATCH, "/api/chat/support/**").hasAnyRole("ADMIN", "SUPPORT")
 						// Eliminación física y operaciones críticas — solo ADMIN
 						.requestMatchers(HttpMethod.DELETE, "/api/admin/**").hasRole("ADMIN")
 						// Visualización global del panel — ADMIN y SUPPORT

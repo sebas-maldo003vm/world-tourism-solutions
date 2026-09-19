@@ -1,10 +1,12 @@
 package com.worldturism.spring.app.presentation.controller;
 
 import com.worldturism.spring.app.application.service.PublicBusinessManager;
+import com.worldturism.spring.app.domain.model.AppUser;
 import com.worldturism.spring.app.presentation.dto.ProviderResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,8 +30,13 @@ public class PublicBusinessController {
 	}
 
 	@GetMapping("/{businessId}")
-	@Operation(summary = "Consultar negocio", description = "Devuelve el detalle de un negocio sin requerir login.")
-	public ProviderResponse getById(@PathVariable Long businessId) {
-		return publicBusinessManager.getById(businessId);
+	@Operation(
+			summary = "Consultar negocio",
+			description = "Devuelve el detalle de un negocio. Visitantes y turistas solo ven servicios APPROVED. "
+					+ "El proveedor dueño y un administrador pueden ver el servicio en cualquier estado.")
+	public ProviderResponse getById(
+			@PathVariable Long businessId,
+			@AuthenticationPrincipal AppUser currentUser) {
+		return publicBusinessManager.getById(businessId, currentUser);
 	}
 }

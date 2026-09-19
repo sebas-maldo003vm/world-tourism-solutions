@@ -1,5 +1,7 @@
 package com.worldturism.spring.app.domain.model;
 
+import java.util.List;
+
 public enum ConversationType {
 	/** Chat cliente ↔ proveedor (catálogo / negocio). */
 	CLIENT_TO_PROVIDER,
@@ -17,5 +19,9 @@ public enum ConversationType {
 		return this == HUMAN_SUPPORT
 				|| this == CLIENT_TO_SUPPORT
 				|| this == PROVIDER_TO_SUPPORT;
+	}
+
+	public static List<ConversationType> humanSupportTypes() {
+		return List.of(HUMAN_SUPPORT, CLIENT_TO_SUPPORT, PROVIDER_TO_SUPPORT);
 	}
 }
