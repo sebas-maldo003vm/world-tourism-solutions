@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { ServiceCard } from '@/shared/components/catalog/ServiceCard';
-import { FilterBar, Filters } from '@/shared/components/catalog/FilterBar';
+import {
+  DEFAULT_FILTERS,
+  FilterBar,
+  matchesCatalogFilters,
+  type Filters,
+} from '@/shared/components/catalog/FilterBar';
 import { api } from '@/core/api/client';
 
 interface Business {
@@ -12,8 +17,11 @@ interface Business {
   description?: string;
   category?: string;
   price?: number;
+  avgRating?: number;
   city?: string;
   location?: string;
+  latitude?: number | string;
+  longitude?: number | string;
   imageUrl?: string;
   imageUrls?: string[];
   images?: string[];
@@ -22,12 +30,7 @@ interface Business {
 export function Home() {
   const [showMap, setShowMap] = useState(false);
   const [businesses, setBusinesses] = useState<Business[]>([]);
-  const [filters, setFilters] = useState<Filters>({
-    search: '',
-    category: 'all',
-    price: 'all',
-    location: 'all',
-  });
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -74,50 +77,22 @@ export function Home() {
     )
   );
 
-  const matchesPrice = (price = 0) => {
-    if (filters.price === 'low') {
-      return price <= 50000;
-    }
-
-    if (filters.price === 'medium') {
-      return price > 50000 && price <= 150000;
-    }
-
-    if (filters.price === 'high') {
-      return price > 150000;
-    }
-
-    return true;
-  };
-
-  const filteredBusinesses = businesses.filter((business) => {
-    const search = filters.search.trim().toLowerCase();
-    const searchableText = [
-      getBusinessName(business),
-      business.description,
-      business.category,
-      business.city,
-      business.location,
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-
-    const matchesSearch = !search || searchableText.includes(search);
-    const matchesCategory =
-      filters.category === 'all' || business.category === filters.category;
-    const matchesLocation =
-      filters.location === 'all' ||
-      business.city === filters.location ||
-      business.location === filters.location;
-
-    return (
-      matchesSearch &&
-      matchesCategory &&
-      matchesLocation &&
-      matchesPrice(business.price)
-    );
-  });
+  const filteredBusinesses = businesses.filter((business) =>
+    matchesCatalogFilters(
+      {
+        name: getBusinessName(business),
+        description: business.description,
+        category: business.category,
+        city: business.city,
+        location: business.location,
+        price: business.price,
+        avgRating: business.avgRating,
+        latitude: business.latitude,
+        longitude: business.longitude,
+      },
+      filters,
+    ),
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -152,7 +127,7 @@ export function Home() {
                       description: business.description || '',
                       category: business.category || 'Actividades',
                       price: business.price || 0,
-                      rating: 0,
+                      rating: business.avgRating || 0,
                       image: business.imageUrl || '',
                       imageUrls:
                         business.imageUrls?.length

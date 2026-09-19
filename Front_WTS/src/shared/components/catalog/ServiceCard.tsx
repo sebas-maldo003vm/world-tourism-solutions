@@ -4,7 +4,6 @@ import {
   MapPin
 } from 'lucide-react';
 
-import { useState } from 'react';
 
 import { Button } from '@/shared/components/ui/button';
 
@@ -30,7 +29,6 @@ export function ServiceCard({
 
   const navigate = useNavigate();
   const { isFavorite, toggleFavorite } = useFavorites();
-  const [contacting, setContacting] = useState(false);
 
   const saved = isFavorite(service.id);
 
@@ -171,19 +169,20 @@ export function ServiceCard({
         {isLogged && (
           <Button
             variant="ghost"
-            onClick={async () => {
+            onClick={() => {
               if (!service.providerId) {
-                navigate('/chat');
+                navigate('/messages');
                 return;
               }
-              setContacting(true);
-              await contactProvider(navigate, service.providerId);
-              setContacting(false);
+              contactProvider(navigate, service.providerId, {
+                serviceId: service.id,
+                serviceName: service.name,
+                providerName: service.name,
+              });
             }}
-            disabled={contacting}
             className="w-full mt-2 rounded-full text-sm"
           >
-            {contacting ? 'Abriendo chat...' : 'Contactar'}
+            Contactar
           </Button>
         )}
 
