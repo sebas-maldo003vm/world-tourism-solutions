@@ -12,6 +12,7 @@ import { MapView } from '@/shared/components/catalog/MapView';
 import { LocationButton } from '@/shared/components/catalog/LocationButton';
 import type { UserCoords } from '@/shared/hooks/useGeolocation';
 import { api } from '@/core/api/client';
+import { trackEvent } from '@/core/analytics/trackEvent'; // 🆕
 
 type ViewMode = 'split' | 'list' | 'map';
 
@@ -119,6 +120,19 @@ export function HomeUsuarioLogueado() {
     loadServices();
   }, []);
 
+  // 🆕 Trackea la búsqueda con debounce: espera 600ms sin tecleo antes de enviar
+  // el evento, así no se manda un SEARCH por cada letra escrita en el FilterBar.
+  useEffect(() => {
+    const query = filters.search?.trim();
+    if (!query) return;
+
+    const timeoutId = setTimeout(() => {
+      trackEvent({ eventType: 'SEARCH', searchQuery: query });
+    }, 600);
+
+    return () => clearTimeout(timeoutId);
+  }, [filters.search]);
+
   const loadServices = async () => {
     try {
       const response = await api.get('/businesses');
@@ -182,6 +196,13 @@ export function HomeUsuarioLogueado() {
   const showList = viewMode !== 'map';
   const showMap = viewMode !== 'list';
   const showingMapOnMobile = viewMode === 'map';
+
+  // 🆕 Trackea el clic hecho desde un marker del mapa (además de los que ya
+  // se trackean directo en ServiceCard para los clics desde la lista)
+  const handleMapServiceClick = (service: { id: string }) => {
+    trackEvent({ eventType: 'CLICK', providerProfileId: Number(service.id) });
+    navigate(`/booking/${service.id}`);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -273,7 +294,7 @@ export function HomeUsuarioLogueado() {
                   <MapView
                     layoutKey={viewMode}
                     services={mapServices}
-                    onServiceClick={(service) => navigate(`/booking/${service.id}`)}
+                    onServiceClick={handleMapServiceClick}
                     userPosition={userPosition}
                   />
                 </div>

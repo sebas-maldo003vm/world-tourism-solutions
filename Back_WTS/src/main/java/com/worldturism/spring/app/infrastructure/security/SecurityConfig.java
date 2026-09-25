@@ -67,6 +67,8 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.GET, "/api/businesses/**", "/api/businesses").permitAll()
 						// Asistente virtual: requiere JWT de turista (USER) o proveedor (PROVIDER)
 						.requestMatchers(HttpMethod.POST, "/api/chat/message").hasAnyRole("USER", "PROVIDER")
+						//Eventos para analitica 
+						.requestMatchers(HttpMethod.POST, "/api/analytics/events").permitAll()
 						// Soporte humano: apertura por clientes; inbox/asignación solo staff
 						.requestMatchers(HttpMethod.POST, "/api/support/conversations/open")
 								.hasAnyRole("USER", "PROVIDER")
