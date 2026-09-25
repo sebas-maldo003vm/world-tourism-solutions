@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import {
   Star,
   Heart,
@@ -15,6 +16,7 @@ import {
 import { Service } from '@/core/mocks/mockData';
 import { ImageCarousel } from '@/shared/components/catalog/ImageCarousel';
 import { useFavorites } from '@/features/catalog/hooks/useFavorites';
+import { trackEvent } from '@/core/analytics/trackEvent'; // 🆕
 
 import { useNavigate } from 'react-router-dom';
 import { contactProvider } from '@/features/chat/utils/contactProvider';
@@ -39,6 +41,22 @@ export function ServiceCard({
   const images = service.imageUrls?.length
     ? service.imageUrls
     : [service.image];
+
+  // 🆕 Se cuenta como "vista" cada vez que la tarjeta se muestra en pantalla
+  // (ej: al cargar el catálogo o al aplicar un filtro que la incluye).
+  useEffect(() => {
+    if (!service.providerId) return;
+    trackEvent({ eventType: 'VIEW', providerProfileId: Number(service.providerId) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [service.providerId]);
+
+  // 🆕 Trackea el clic antes de navegar al detalle del servicio
+  const handleViewDetail = () => {
+    if (service.providerId) {
+      trackEvent({ eventType: 'CLICK', providerProfileId: Number(service.providerId) });
+    }
+    navigate(`/booking/${service.id}`);
+  };
 
   return (
     <Card className="group overflow-hidden hover:shadow-lg transition-shadow">
@@ -146,18 +164,14 @@ export function ServiceCard({
 
           <Button
             variant="outline"
-            onClick={() =>
-              navigate(`/booking/${service.id}`)
-            }
+            onClick={handleViewDetail}
             className="rounded-full"
           >
             Ver más
           </Button>
 
           <Button
-            onClick={() =>
-              navigate(`/booking/${service.id}`)
-            }
+            onClick={handleViewDetail}
             className="bg-blue-600 hover:bg-blue-700 rounded-full"
           >
             Reservar

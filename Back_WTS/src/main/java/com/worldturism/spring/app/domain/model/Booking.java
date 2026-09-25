@@ -19,6 +19,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "bookings")
@@ -44,8 +46,9 @@ public class Booking {
     private BigDecimal totalPrice;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private BookingStatus status = BookingStatus.PENDING;
+@JdbcTypeCode(SqlTypes.NAMED_ENUM)
+@Column(nullable = false, columnDefinition = "booking_status_enum")
+private BookingStatus status = BookingStatus.PENDING;
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
