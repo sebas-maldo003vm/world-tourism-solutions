@@ -428,7 +428,9 @@ export function AccesorDashboard() {
                           ? service.imageUrls
                           : service.images?.length
                           ? service.images
-                          : [service.imageUrl]
+                          : service.imageUrl
+                          ? [service.imageUrl]
+                          : []
                       }
                       alt={service.businessName || service.title || 'Servicio'}
                       className="h-48 w-full"
@@ -469,7 +471,7 @@ export function AccesorDashboard() {
                           size="sm"
                           onClick={() =>
                             navigate(
-                              `/booking/${getBusinessId(service)}`
+                              `/booking-detail/${getBusinessId(service)}`
                             )
                           }
                         >
