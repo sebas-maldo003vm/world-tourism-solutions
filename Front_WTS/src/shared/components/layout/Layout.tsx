@@ -10,7 +10,9 @@ export function Layout() {
 
   const hiddenRoutes = [
     '/login',
-    '/register'
+    '/register',
+    '/forgot-password',
+    '/update-password',
   ];
 
   const hideHeader = hiddenRoutes.includes(location.pathname);

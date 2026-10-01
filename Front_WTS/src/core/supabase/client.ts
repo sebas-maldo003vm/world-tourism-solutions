@@ -13,7 +13,19 @@ export function getSupabaseClient(): SupabaseClient {
   }
 
   if (!client) {
-    client = createClient(url, anonKey);
+    client = createClient(url, anonKey, {
+      auth: {
+        // El enlace de recuperación llega como hash implícito
+        // (#access_token&refresh_token&type=recovery). UpdatePassword lee ese
+        // hash y llama a setSession antes de quitarlo. Si detectSessionInUrl
+        // queda activo, GoTrue hace window.location.hash = '' al iniciar y
+        // deja /update-password# antes de que podamos usar los tokens.
+        flowType: 'implicit',
+        detectSessionInUrl: false,
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+    });
   }
 
   return client;

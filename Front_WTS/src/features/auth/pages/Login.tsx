@@ -14,6 +14,7 @@ import {
 } from '@/shared/components/ui/card';
 import { api } from '@/core/api/client';
 import { useAuth } from '@/features/auth/context/AuthContext';
+import { leaveAuthScreen } from '@/features/auth/navigation';
 
 export function Login() {
   const navigate = useNavigate();
@@ -70,7 +71,7 @@ export function Login() {
         <CardHeader className="space-y-1">
           <Button
             variant="ghost"
-            onClick={() => navigate(-1)}
+            onClick={() => leaveAuthScreen(navigate, '/')}
             className="mb-4"
           >
             ← Volver
@@ -132,6 +133,15 @@ export function Login() {
                   )}
                 </button>
               </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Link
+                to="/forgot-password"
+                className="text-sm text-blue-600 hover:underline font-medium"
+              >
+                ¿Olvidaste tu contraseña?
+              </Link>
             </div>
 
             <Button
