@@ -136,8 +136,19 @@ export function ServiceForm() {
       try {
         setLoading(true);
 
-        const response = await api.get(`/businesses/${id}`);
-        fillForm(response.data);
+        const response = await api.get('/provider/business');
+        const rows = Array.isArray(response.data) ? response.data : [];
+        const service = rows.find(
+          (row: { id?: number; providerProfileId?: number }) =>
+            String(row.id) === String(id) || String(row.providerProfileId) === String(id),
+        );
+
+        if (!service) {
+          alert('No se encontró el servicio en tu cuenta.');
+          return;
+        }
+
+        fillForm(service);
       } catch (error) {
         console.error(error);
         alert('Error cargando servicio');

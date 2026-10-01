@@ -7,13 +7,21 @@ import { Label } from '@/shared/components/ui/label';
 import { Input } from '@/shared/components/ui/input';
 import { Calendar } from '@/shared/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover';
-import { Calendar as CalendarIcon, MapPin, Star, Users, DollarSign, Clock, MessageSquare, Pencil } from 'lucide-react';
+import { Calendar as CalendarIcon, MapPin, Star, Users, DollarSign, Clock, MessageSquare, Pencil, CircleCheck } from 'lucide-react';
+import { FEEDBACK_STORAGE_KEYS, FeedbackPrompt } from '@/shared/components/feedback/FeedbackPrompt';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { api } from '@/core/api/client';
 import { ImageCarousel } from '@/shared/components/catalog/ImageCarousel';
 import { contactProvider } from '@/features/chat/utils/contactProvider';
 import { useAuth } from '@/features/auth/context/AuthContext';
+import { trackDetailViewOnce } from '@/core/analytics/trackEvent';
+import {
+  INITIAL_LEGAL_CONSENT,
+  isLegalConsentComplete,
+  LegalConsentChecklist,
+  type LegalConsentValue,
+} from '@/shared/components/legal/LegalConsentChecklist';
 
 export type ServiceStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'COMPLETED';
 
@@ -136,11 +144,21 @@ export function Booking() {
   const [people, setPeople] = useState(1);
   const [ownedProfileIds, setOwnedProfileIds] = useState<number[]>([]);
   const [ownershipResolved, setOwnershipResolved] = useState(false);
+  const [consent, setConsent] = useState<LegalConsentValue>(INITIAL_LEGAL_CONSENT);
+  const [reservationConfirmed, setReservationConfirmed] = useState(false);
+  const consentComplete = isLegalConsentComplete(consent);
 
   useEffect(() => {
     loadBusiness();
     loadReviews();
   }, [id]);
+
+  // VIEW = interés real: solo al entrar al detalle (una vez por sesión/proveedor).
+  useEffect(() => {
+    const providerProfileId = getProviderProfileId(business);
+    if (providerProfileId == null) return;
+    trackDetailViewOnce(providerProfileId);
+  }, [business]);
 
   useEffect(() => {
     if (!isAuthenticated || currentUser?.role !== 'PROVIDER') {
@@ -222,6 +240,9 @@ export function Booking() {
       alert('Selecciona una fecha');
       return;
     }
+    if (!isLegalConsentComplete(consent)) {
+      return;
+    }
     if (!business) return;
 
     try {
@@ -234,10 +255,8 @@ export function Booking() {
         numPeople: people,
       };
 
-      const response = await api.post('/bookings', payload);
-      console.log('BOOKING:', response.data);
-      alert('Reserva creada correctamente');
-      navigate('/profile');
+      await api.post('/bookings', payload);
+      setReservationConfirmed(true);
     } catch (error: any) {
       console.error(error);
       const message =
@@ -267,6 +286,73 @@ export function Booking() {
   }
 
   const total = Number(business.price || 0) * people;
+
+  if (reservationConfirmed) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-10">
+        <div className="max-w-lg mx-auto px-4">
+          <Card className="shadow-lg border-0">
+            <CardContent className="p-8 text-center">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                <CircleCheck className="h-7 w-7" />
+              </div>
+              <h1 className="text-2xl font-bold mb-2">Solicitud de reserva enviada</h1>
+              <p className="text-sm text-gray-600 mb-6">
+                Registramos tu solicitud para {business.businessName}. El proveedor la revisará para
+                confirmarla.
+              </p>
+
+              <div className="bg-gray-100 rounded-xl p-4 text-left text-sm space-y-2 mb-6">
+                <div className="flex justify-between gap-4">
+                  <span className="text-gray-500">Fecha</span>
+                  <span className="font-medium">
+                    {date ? format(date, "d 'de' MMMM yyyy", { locale: es }) : '—'}
+                  </span>
+                </div>
+                {(startTime || endTime) && (
+                  <div className="flex justify-between gap-4">
+                    <span className="text-gray-500">Horario</span>
+                    <span className="font-medium">
+                      {[startTime, endTime].filter(Boolean).join(' – ')}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between gap-4">
+                  <span className="text-gray-500">Personas</span>
+                  <span className="font-medium">{people}</span>
+                </div>
+                <div className="flex justify-between gap-4 border-t border-gray-200 pt-2 font-semibold">
+                  <span>Total</span>
+                  <span className="text-green-600">${total.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <Button
+                  type="button"
+                  onClick={() => navigate('/itinerary')}
+                  className="w-full bg-blue-600 hover:bg-blue-700 rounded-full h-12 text-base"
+                >
+                  Ver itinerario
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => navigate('/profile')}
+                  className="w-full rounded-full h-12 text-base"
+                >
+                  Ir a mi perfil
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <FeedbackPrompt open storageKey={FEEDBACK_STORAGE_KEYS.booking} />
+      </div>
+    );
+  }
+
   const providerProfileId = getProviderProfileId(business);
   const ownerUserId = getOwnerUserId(business);
   const isOwnerByUser =
@@ -542,18 +628,40 @@ export function Booking() {
                     </div>
                   </div>
 
-                  {/* BOTÓN */}
-                  <Button
-                    onClick={handleConfirm}
-                    disabled={!date || bookingLoading}
-                    className="w-full bg-blue-600 hover:bg-blue-700 rounded-full h-12 text-base"
-                  >
-                    {!isAuthenticated
-                      ? 'Inicia sesión para reservar'
-                      : bookingLoading
-                      ? 'Procesando...'
-                      : 'Confirmar reserva'}
-                  </Button>
+                  {isAuthenticated ? (
+                    <form
+                      className="space-y-4"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (!isLegalConsentComplete(consent)) return;
+                        void handleConfirm();
+                      }}
+                    >
+                      <LegalConsentChecklist
+                        value={consent}
+                        onChange={setConsent}
+                        disabled={bookingLoading}
+                        idPrefix="booking-consent"
+                      />
+
+                      <Button
+                        type="submit"
+                        disabled={!date || bookingLoading || !consentComplete}
+                        className="w-full bg-blue-600 hover:bg-blue-700 rounded-full h-12 text-base"
+                      >
+                        {bookingLoading ? 'Procesando...' : 'Confirmar reserva'}
+                      </Button>
+                    </form>
+                  ) : (
+                    <Button
+                      type="button"
+                      onClick={handleConfirm}
+                      disabled={!date || bookingLoading}
+                      className="w-full bg-blue-600 hover:bg-blue-700 rounded-full h-12 text-base"
+                    >
+                      Inicia sesión para reservar
+                    </Button>
+                  )}
 
                   {isAuthenticated && business?.id && (
                     <Button
