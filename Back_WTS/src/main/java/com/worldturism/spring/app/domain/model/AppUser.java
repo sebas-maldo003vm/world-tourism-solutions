@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.springframework.security.core.GrantedAuthority;
@@ -35,6 +36,10 @@ public class AppUser implements UserDetails {
 
 	@Column(nullable = false, unique = true, length = 160)
 	private String email;
+
+	@JdbcTypeCode(SqlTypes.UUID)
+	@Column(name = "auth_user_id", unique = true)
+	private UUID authUserId;
 
 	@Column(nullable = false)
 	private String password;
@@ -145,6 +150,14 @@ public class AppUser implements UserDetails {
 
 	public void setEmail(String email) {
 		this.email = email;
+	}
+
+	public UUID getAuthUserId() {
+		return authUserId;
+	}
+
+	public void setAuthUserId(UUID authUserId) {
+		this.authUserId = authUserId;
 	}
 
 	@Override

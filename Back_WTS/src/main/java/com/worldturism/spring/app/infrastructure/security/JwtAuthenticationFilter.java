@@ -27,14 +27,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 	@Override
 	protected boolean shouldNotFilter(HttpServletRequest request) {
-		if (!"POST".equalsIgnoreCase(request.getMethod())) {
-			return false;
-		}
+		String method = request.getMethod();
 		String path = request.getServletPath();
 		if (path == null || path.isBlank()) {
 			path = request.getRequestURI();
 		}
-		return "/api/auth/register".equals(path) || "/api/auth/login".equals(path);
+		if ("POST".equalsIgnoreCase(method)) {
+			return "/api/auth/register".equals(path) || "/api/auth/login".equals(path);
+		}
+		return "PUT".equalsIgnoreCase(method) && "/api/auth/reset-password".equals(path);
 	}
 
 	@Override
