@@ -281,6 +281,20 @@ export function AdminDashboard() {
     navigate(`/chat?conversation=${ticketId}`);
   };
 
+  const handleAssignSupport = async (ticketId: number) => {
+    setActionLoading(ticketId);
+    try {
+      const { data } = await chatApi.assignSupportConversation(ticketId);
+      setSupportTickets((prev) => prev.map((t) => (t.id === ticketId ? data : t)));
+      setActiveTickets((prev) => prev.map((t) => (t.id === ticketId ? data : t)));
+      toast.success('Ticket asignado a tu bandeja.');
+    } catch {
+      toast.error('No se pudo asignar el ticket.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleReplyActiveTicket = async (ticketId: number) => {
     const content = (replyDrafts[ticketId] || '').trim();
     if (!content) return;
@@ -764,6 +778,16 @@ export function AdminDashboard() {
                                       <SelectItem value="CLOSED">Cerrado</SelectItem>
                                     </SelectContent>
                                   </Select>
+                                  {ticket.status === 'UNASSIGNED' && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={actionLoading === ticket.id}
+                                      onClick={() => handleAssignSupport(ticket.id)}
+                                    >
+                                      Reclamar
+                                    </Button>
+                                  )}
                                   <Button
                                     size="sm"
                                     variant="ghost"
@@ -843,14 +867,18 @@ export function AdminDashboard() {
                             </TableCell>
                             <TableCell>
                               <div className="flex justify-end gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={actionLoading === user.id}
-                                  onClick={() => handleUserStatusToggle(user)}
-                                >
-                                  {user.isActive ? 'Desactivar' : 'Activar'}
-                                </Button>
+                                {(canManageCritical ||
+                                  user.role === 'USER' ||
+                                  user.role === 'PROVIDER') && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={actionLoading === user.id}
+                                    onClick={() => handleUserStatusToggle(user)}
+                                  >
+                                    {user.isActive ? 'Desactivar' : 'Activar'}
+                                  </Button>
+                                )}
                                 {canManageCritical && (
                                   <Button
                                     size="sm"

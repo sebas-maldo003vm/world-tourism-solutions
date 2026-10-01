@@ -174,28 +174,37 @@ export const chatApi = {
     }),
 
   createSupportTicket: (payload: CreateSupportTicketPayload) =>
-    api.post<SupportTicket>('/chat/support', payload, { headers: authHeaders() }),
+    api.post<SupportTicket>('/support/conversations/open', payload, {
+      headers: authHeaders(),
+    }),
 
+  /** Inbox de staff (ADMIN / SUPPORT): tickets sin asignar o asignados al asesor. */
   listSupportTickets: () =>
-    api.get<SupportTicket[]>('/chat/support', { headers: authHeaders() }),
+    api.get<SupportTicket[]>('/support/conversations/inbox', { headers: authHeaders() }),
+
+  /** Reclamar/asignar ticket al asesor autenticado. */
+  assignSupportConversation: (conversationId: number) =>
+    api.put<SupportTicket>(`/support/conversations/${conversationId}/assign`, {}, {
+      headers: authHeaders(),
+    }),
 
   updateSupportStatus: (conversationId: number, status: SupportStatus) =>
     api.patch<SupportTicket>(
-      `/chat/support/${conversationId}/status`,
+      `/support/conversations/${conversationId}/status`,
       { status },
       { headers: authHeaders() },
     ),
 
   updateSupportTicket: (conversationId: number, payload: UpdateSupportTicketPayload) =>
     api.patch<SupportTicket>(
-      `/chat/support/${conversationId}/status`,
+      `/support/conversations/${conversationId}/status`,
       payload,
       { headers: authHeaders() },
     ),
 
   replySupportTicket: (conversationId: number, content: string) =>
     api.post<ChatMessage>(
-      `/chat/support/${conversationId}/messages`,
+      `/support/conversations/${conversationId}/messages`,
       { content },
       { headers: authHeaders() },
     ),

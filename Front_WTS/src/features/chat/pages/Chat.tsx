@@ -137,6 +137,36 @@ function sortByLastMessage(list: ConversationItem[]) {
   );
 }
 
+/** Normaliza un ticket del inbox de soporte a ConversationItem para la bandeja. */
+function ticketToConversationItem(ticket: {
+  id: number;
+  userName: string;
+  subject: string;
+  urgency: ConversationItem['urgency'];
+  message: string;
+  createdAt: string;
+  status: ConversationItem['supportStatus'];
+  conversationType: ConversationItem['conversationType'];
+  assignedAdvisorId?: number | null;
+  assignedAdvisorName?: string | null;
+}): ConversationItem {
+  return {
+    id: ticket.id,
+    displayName: ticket.userName,
+    clientName: ticket.userName,
+    lastMessage: ticket.message,
+    lastMessageAt: ticket.createdAt,
+    unreadCount: 0,
+    conversationType: ticket.conversationType,
+    supportStatus: ticket.status,
+    urgency: ticket.urgency,
+    subject: ticket.subject,
+    providerProfileName: ticket.subject,
+    assignedAdvisorId: ticket.assignedAdvisorId ?? undefined,
+    assignedAdvisorName: ticket.assignedAdvisorName ?? undefined,
+  };
+}
+
 function messageAvatarSrc(
   message: ChatMessage,
   conversation: ConversationItem | null,
@@ -200,6 +230,16 @@ export function Chat() {
 
   const loadConversations = useCallback(async () => {
     try {
+      // Staff: inbox unificado de SupportController. USER/PROVIDER: bandeja comercial + tickets propios.
+      if (isStaff) {
+        const { data: tickets } = await chatApi.listSupportTickets();
+        const supportChats = sortByLastMessage(tickets.map(ticketToConversationItem));
+        setDirectConversations([]);
+        setSupportConversations(supportChats);
+        setError(null);
+        return { providerChats: [], supportChats, all: supportChats };
+      }
+
       const { data } = await chatApi.listConversations();
       // Aislamiento bot: nunca listar CATALOG_INQUIRY / Asistente Virtual en bandeja.
       const humanOnly = data.filter((c) => !isBotConversation(c));
@@ -215,7 +255,7 @@ export function Chat() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isStaff]);
 
   const loadMessages = useCallback(async (conversationId: number) => {
     setLoadingMessages(true);
@@ -439,25 +479,34 @@ export function Chat() {
       const { data } = await chatApi.createSupportTicket(payload);
       setShowSupport(false);
       await loadConversations();
-      const supportConv: ConversationItem = {
-        id: data.id,
-        displayName: 'Soporte Técnico',
-        lastMessage: data.message,
-        lastMessageAt: data.createdAt,
-        unreadCount: 0,
-        conversationType: data.conversationType,
-        supportStatus: data.status,
-        urgency: data.urgency,
-        subject: data.subject,
-        providerProfileName: data.subject,
-        assignedAdvisorId: data.assignedAdvisorId ?? undefined,
-        assignedAdvisorName: data.assignedAdvisorName ?? undefined,
-      };
+      const supportConv = ticketToConversationItem(data);
       setInboxTab('support');
-      setSelectedConversation(supportConv);
+      setSelectedConversation({
+        ...supportConv,
+        displayName: 'Soporte Técnico',
+      });
       setShowChat(true);
+      await loadMessages(data.id);
     } catch {
       setError('No se pudo enviar la solicitud de soporte.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleAssignTicket = async () => {
+    if (!selectedConversation || !isStaff) return;
+    setSending(true);
+    try {
+      const { data } = await chatApi.assignSupportConversation(selectedConversation.id);
+      const updated = ticketToConversationItem(data);
+      setSelectedConversation(updated);
+      setSupportConversations((prev) =>
+        sortByLastMessage(prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))),
+      );
+      setError(null);
+    } catch (error) {
+      setError(readApiError(error, 'No se pudo asignar el ticket.'));
     } finally {
       setSending(false);
     }
@@ -786,6 +835,19 @@ export function Chat() {
                 </div>
 
                 <div className="flex shrink-0 gap-2">
+                  {isStaff &&
+                    isSupportConversation &&
+                    selectedConversation.supportStatus === 'UNASSIGNED' && (
+                      <Button
+                        type="button"
+                        onClick={() => void handleAssignTicket()}
+                        disabled={sending}
+                        className="rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200"
+                      >
+                        <Headphones className="mr-1.5 h-4 w-4" />
+                        Reclamar
+                      </Button>
+                    )}
                   {!isSupportConversation && !isStaff && (
                     <Button
                       onClick={() => setShowSupport(true)}
