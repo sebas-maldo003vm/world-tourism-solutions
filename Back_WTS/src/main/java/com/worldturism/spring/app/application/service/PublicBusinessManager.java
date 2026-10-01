@@ -5,7 +5,7 @@ import com.worldturism.spring.app.domain.model.ProviderProfile;
 import com.worldturism.spring.app.domain.model.Role;
 import com.worldturism.spring.app.domain.model.ServiceStatus;
 import com.worldturism.spring.app.infrastructure.persistence.repository.ProviderProfileRepository;
-import com.worldturism.spring.app.presentation.dto.ProviderResponse;
+import com.worldturism.spring.app.presentation.dto.PublicBusinessResponse;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,20 +20,20 @@ public class PublicBusinessManager {
 	}
 
 	@Transactional(readOnly = true)
-	public List<ProviderResponse> listAll() {
+	public List<PublicBusinessResponse> listAll() {
 		return providerProfileRepository.findByStatusOrderByIdDesc(ServiceStatus.APPROVED)
 				.stream()
-				.map(ProviderResponse::from)
+				.map(PublicBusinessResponse::from)
 				.toList();
 	}
 
 	@Transactional(readOnly = true)
-	public ProviderResponse getById(Long businessId, AppUser currentUser) {
+	public PublicBusinessResponse getById(Long businessId, AppUser currentUser) {
 		ProviderProfile business = providerProfileRepository.findById(businessId)
 				.orElseThrow(() -> new IllegalArgumentException("No existe un negocio con ese id."));
 
 		if (isPubliclyVisible(business) || canPreviewUnpublished(business, currentUser)) {
-			return ProviderResponse.from(business);
+			return PublicBusinessResponse.from(business);
 		}
 
 		throw new IllegalArgumentException("No existe un negocio con ese id.");

@@ -11,7 +11,7 @@ import com.worldturism.spring.app.presentation.dto.BookingRequest;
 import com.worldturism.spring.app.presentation.dto.BookingResponse;
 import com.worldturism.spring.app.presentation.dto.ItineraryResponse;
 import java.math.BigDecimal;
-import java.util.Comparator;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -72,27 +72,29 @@ public class BookingService {
     }
 
     /**
-     * Devuelve el itinerario del usuario agrupado por ciudad,
-     * ordenado por fecha y hora de inicio (más cercano primero).
+     * Itinerario del usuario agrupado por ciudad (fecha y hora ascendente).
+     * Incluye reservas activas y planes completados. Si {@code date} viene informado,
+     * limita el resultado a ese día, también cuando es una fecha pasada.
      */
     @Transactional(readOnly = true)
-    public List<ItineraryResponse> getItinerary(AppUser user) {
+    public List<ItineraryResponse> getItinerary(AppUser user, LocalDate date) {
         validateUser(user);
 
-        List<BookingStatus> activeStatuses = List.of(
-                BookingStatus.PENDING, BookingStatus.APPROVED);
+        List<BookingStatus> statuses = List.of(
+                BookingStatus.PENDING, BookingStatus.APPROVED, BookingStatus.COMPLETED);
 
-        List<BookingResponse> bookings =
-                bookingRepository.findByUserIdAndStatusInOrderByBookingDateAscStartTimeAsc(
-                        user.getId(), activeStatuses)
-                        .stream()
-                        .map(BookingResponse::from)
-                        .toList();
+        List<Booking> bookings = date == null
+                ? bookingRepository.findByUserIdAndStatusInOrderByBookingDateAscStartTimeAsc(
+                        user.getId(), statuses)
+                : bookingRepository.findByUserIdAndStatusInAndBookingDateOrderByStartTimeAsc(
+                        user.getId(), statuses, date);
 
-        // Agrupa por ciudad manteniendo el orden ya establecido (fecha+hora ASC)
         Map<String, List<BookingResponse>> byCity = bookings.stream()
+                .map(BookingResponse::from)
                 .collect(Collectors.groupingBy(
-                        b -> b.businessCity() != null ? b.businessCity() : "Sin ciudad",
+                        b -> b.businessCity() != null && !b.businessCity().isBlank()
+                                ? b.businessCity()
+                                : "Sin ciudad",
                         LinkedHashMap::new,
                         Collectors.toList()));
 

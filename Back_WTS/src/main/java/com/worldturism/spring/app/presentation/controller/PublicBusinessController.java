@@ -2,7 +2,7 @@ package com.worldturism.spring.app.presentation.controller;
 
 import com.worldturism.spring.app.application.service.PublicBusinessManager;
 import com.worldturism.spring.app.domain.model.AppUser;
-import com.worldturism.spring.app.presentation.dto.ProviderResponse;
+import com.worldturism.spring.app.presentation.dto.PublicBusinessResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
@@ -25,7 +25,7 @@ public class PublicBusinessController {
 
 	@GetMapping
 	@Operation(summary = "Listar negocios", description = "Devuelve los negocios registrados por proveedores sin requerir login.")
-	public List<ProviderResponse> listAll() {
+	public List<PublicBusinessResponse> listAll() {
 		return publicBusinessManager.listAll();
 	}
 
@@ -34,7 +34,7 @@ public class PublicBusinessController {
 			summary = "Consultar negocio",
 			description = "Devuelve el detalle de un negocio. Visitantes y turistas solo ven servicios APPROVED. "
 					+ "El proveedor dueño y un administrador pueden ver el servicio en cualquier estado.")
-	public ProviderResponse getById(
+	public PublicBusinessResponse getById(
 			@PathVariable Long businessId,
 			@AuthenticationPrincipal AppUser currentUser) {
 		return publicBusinessManager.getById(businessId, currentUser);
