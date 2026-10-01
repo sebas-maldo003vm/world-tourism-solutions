@@ -12,11 +12,13 @@ import { MapView } from '@/shared/components/catalog/MapView';
 import { LocationButton } from '@/shared/components/catalog/LocationButton';
 import type { UserCoords } from '@/shared/hooks/useGeolocation';
 import { api } from '@/core/api/client';
-import { trackEvent } from '@/core/analytics/trackEvent'; // 🆕
+import { trackEvent, trackEventBatch } from '@/core/analytics/trackEvent';
 
 type ViewMode = 'split' | 'list' | 'map';
 
 const DESKTOP_QUERY = '(min-width: 1024px)';
+const SEARCH_DEBOUNCE_MS = 600;
+const MAX_SEARCH_ATTRIBUTION = 40;
 
 const VIEW_OPTIONS: { id: ViewMode; label: string; icon: LucideIcon }[] = [
   { id: 'split', label: 'Dividida', icon: Columns2 },
@@ -120,19 +122,6 @@ export function HomeUsuarioLogueado() {
     loadServices();
   }, []);
 
-  // 🆕 Trackea la búsqueda con debounce: espera 600ms sin tecleo antes de enviar
-  // el evento, así no se manda un SEARCH por cada letra escrita en el FilterBar.
-  useEffect(() => {
-    const query = filters.search?.trim();
-    if (!query) return;
-
-    const timeoutId = setTimeout(() => {
-      trackEvent({ eventType: 'SEARCH', searchQuery: query });
-    }, 600);
-
-    return () => clearTimeout(timeoutId);
-  }, [filters.search]);
-
   const loadServices = async () => {
     try {
       const response = await api.get('/businesses');
@@ -179,6 +168,42 @@ export function HomeUsuarioLogueado() {
     [services, filters],
   );
 
+  // SEARCH con debounce: un solo lote atribuido a proveedores que coinciden con la query.
+  useEffect(() => {
+    const query = filters.search?.trim();
+    if (!query) return;
+
+    const timeoutId = setTimeout(() => {
+      const needle = query.toLowerCase();
+      const providerIds = services
+        .filter((service) => {
+          const name = getServiceName(service).toLowerCase();
+          const description = (service.description || '').toLowerCase();
+          const location = getServiceLocation(service).toLowerCase();
+          return (
+            name.includes(needle) ||
+            description.includes(needle) ||
+            location.includes(needle)
+          );
+        })
+        .map((service) => Number(service.id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+        .slice(0, MAX_SEARCH_ATTRIBUTION);
+
+      if (providerIds.length === 0) return;
+
+      trackEventBatch(
+        providerIds.map((providerProfileId) => ({
+          eventType: 'SEARCH',
+          providerProfileId,
+          searchQuery: query,
+        })),
+      );
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [filters.search, services]);
+
   const mapServices = useMemo(
     () =>
       filteredServices.map((service) => ({
@@ -197,10 +222,11 @@ export function HomeUsuarioLogueado() {
   const showMap = viewMode !== 'list';
   const showingMapOnMobile = viewMode === 'map';
 
-  // 🆕 Trackea el clic hecho desde un marker del mapa (además de los que ya
-  // se trackean directo en ServiceCard para los clics desde la lista)
   const handleMapServiceClick = (service: { id: string }) => {
-    trackEvent({ eventType: 'CLICK', providerProfileId: Number(service.id) });
+    const providerProfileId = Number(service.id);
+    if (Number.isFinite(providerProfileId) && providerProfileId > 0) {
+      trackEvent({ eventType: 'CLICK', providerProfileId });
+    }
     navigate(`/booking/${service.id}`);
   };
 
