@@ -6,12 +6,12 @@ import java.time.Instant;
 public record FavoriteResponse(
 		Long id,
 		Instant savedAt,
-		ProviderResponse business) {
+		PublicBusinessResponse business) {
 
 	public static FavoriteResponse from(Favorite favorite) {
 		return new FavoriteResponse(
 				favorite.getId(),
 				favorite.getSavedAt(),
-				ProviderResponse.from(favorite.getProviderProfile()));
+				PublicBusinessResponse.from(favorite.getProviderProfile()));
 	}
 }

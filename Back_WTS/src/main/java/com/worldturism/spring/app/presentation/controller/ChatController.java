@@ -119,21 +119,21 @@ public class ChatController {
 
 	@PostMapping("/support")
 	@ResponseStatus(HttpStatus.CREATED)
-	@Operation(summary = "Crear ticket de soporte")
+	@Operation(summary = "Crear ticket de soporte (legacy → preferir POST /api/support/conversations/open)")
 	public SupportTicketResponse crearTicketSoporte(
 			@AuthenticationPrincipal AppUser user,
 			@Valid @RequestBody CreateSupportTicketRequest request) {
-		return supportChatService.crearTicketSoporte(user, request);
+		return supportChatService.abrirConversacionSoporte(user, request);
 	}
 
 	@GetMapping("/support")
-	@Operation(summary = "Listar tickets de soporte (ADMIN / SUPPORT)")
+	@Operation(summary = "Listar tickets de soporte (legacy → preferir GET /api/support/conversations/inbox)")
 	public List<SupportTicketResponse> listarTicketsSoporte(@AuthenticationPrincipal AppUser user) {
-		return supportChatService.listarTicketsSoporte(user);
+		return supportChatService.listarInboxSoporte(user);
 	}
 
 	@PatchMapping("/support/{conversationId}/status")
-	@Operation(summary = "Actualizar estado y/o urgencia del ticket (ADMIN / SUPPORT)")
+	@Operation(summary = "Actualizar estado y/o urgencia del ticket (legacy → preferir PATCH /api/support/conversations/{id}/status)")
 	public SupportTicketResponse actualizarEstadoTicket(
 			@AuthenticationPrincipal AppUser user,
 			@PathVariable Long conversationId,
@@ -143,7 +143,7 @@ public class ChatController {
 
 	@PostMapping("/support/{conversationId}/messages")
 	@ResponseStatus(HttpStatus.CREATED)
-	@Operation(summary = "Responder ticket de soporte (ADMIN / SUPPORT)")
+	@Operation(summary = "Responder ticket de soporte (legacy → preferir POST /api/support/conversations/{id}/messages)")
 	public MessageResponse responderTicketSoporte(
 			@AuthenticationPrincipal AppUser user,
 			@PathVariable Long conversationId,

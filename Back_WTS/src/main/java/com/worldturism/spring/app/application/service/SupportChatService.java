@@ -191,24 +191,37 @@ public class SupportChatService {
 
 	/**
 	 * Abre una conversación de soporte humano persistente en cola ({@link SupportStatus#UNASSIGNED}).
+	 * Acepta asunto y mensaje inicial del turista o proveedor.
 	 */
 	@Transactional
-	public SupportTicketResponse abrirConversacionSoporte(AppUser user) {
+	public SupportTicketResponse abrirConversacionSoporte(AppUser user, CreateSupportTicketRequest request) {
 		AppUser current = conversationService.requireAuthenticatedUser(user);
 		if (current.getRole() != Role.USER && current.getRole() != Role.PROVIDER) {
 			throw new IllegalArgumentException(
 					"Solo turistas y proveedores pueden abrir conversaciones de soporte.");
 		}
 
+		ConversationType type = current.getRole() == Role.PROVIDER
+				? ConversationType.PROVIDER_TO_SUPPORT
+				: ConversationType.CLIENT_TO_SUPPORT;
+
 		Conversation conversation = new Conversation();
 		conversation.setUser(current);
 		conversation.setProvider(null);
-		conversation.setConversationType(ConversationType.HUMAN_SUPPORT);
+		conversation.setConversationType(type);
 		conversation.setSupportStatus(SupportStatus.UNASSIGNED);
 		conversation.setAssignedAdvisor(null);
 		conversation.setUrgency(SupportUrgency.MEDIUM);
-		conversation.setSubject("Soporte humano");
-		conversation = conversationRepository.save(conversation);
+		conversation.setSubject(request.subject().trim());
+		conversation = conversationRepository.saveAndFlush(conversation);
+
+		Message initialMessage = new Message();
+		initialMessage.setSender(current);
+		initialMessage.setContent(request.initialMessage().trim());
+		initialMessage.setSentAt(Instant.now());
+		conversation.addMessage(initialMessage);
+		conversation.setLastMessageAt(initialMessage.getSentAt());
+		messageRepository.save(initialMessage);
 
 		loadMessagesForTicket(conversation);
 		return SupportTicketResponse.from(conversation);
