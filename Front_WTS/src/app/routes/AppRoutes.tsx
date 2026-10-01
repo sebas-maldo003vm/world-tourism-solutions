@@ -4,6 +4,8 @@ import { Home } from '@/features/catalog/pages/Home';
 import { HomeUsuarioLogueado } from '@/features/catalog/pages/HomeUsuarioLogueado';
 import { Login } from '@/features/auth/pages/Login';
 import { Register } from '@/features/auth/pages/Register';
+import { ForgotPassword } from '@/features/auth/pages/ForgotPassword';
+import { UpdatePassword } from '@/features/auth/pages/UpdatePassword';
 import { Booking } from '@/features/bookings/pages/Booking';
 import { BookingDetail } from '@/features/bookings/pages/BookingDetail';
 import { Itinerary } from '@/features/bookings/pages/Itinerary';
@@ -26,11 +28,18 @@ export const router = createBrowserRouter([
       { index: true, Component: Home },
       { path: 'login', Component: Login },
       { path: 'register', Component: Register },
+      { path: 'forgot-password', Component: ForgotPassword },
+      { path: 'update-password', Component: UpdatePassword },
       { path: 'booking/:id', Component: Booking },
       { path: 'reviews/:id', Component: Reviews },
-      { path: 'booking-detail/:id', Component: BookingDetail },
-      { path: '*', Component: NotFound },
-
+      {
+        path: 'booking-detail/:id',
+        element: (
+          <ProtectedRoute allowedRoles={['PROVIDER']}>
+            <BookingDetail />
+          </ProtectedRoute>
+        ),
+      },
       {
         path: 'admin',
         element: (
@@ -119,6 +128,7 @@ export const router = createBrowserRouter([
           </ProtectedRoute>
         ),
       },
+      { path: '*', Component: NotFound },
     ],
   },
 ]);
