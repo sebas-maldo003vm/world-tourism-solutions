@@ -16,6 +16,17 @@ import { Eye, EyeOff } from 'lucide-react';
 
 import { api } from '@/core/api/client';
 import { useAuth } from '@/features/auth/context/AuthContext';
+import { goBackOnAuthLinkClick } from '@/features/auth/navigation';
+import {
+  toSpanishAuthError,
+  type PublicAuthRole,
+} from '@/features/auth/services/supabaseAuth';
+import {
+  INITIAL_LEGAL_CONSENT,
+  isLegalConsentComplete,
+  LegalConsentChecklist,
+  type LegalConsentValue,
+} from '@/shared/components/legal/LegalConsentChecklist';
 
 export function Register() {
 
@@ -41,6 +52,15 @@ export function Register() {
 
   const [loading, setLoading] =
     useState(false);
+
+  const [consent, setConsent] =
+    useState<LegalConsentValue>(INITIAL_LEGAL_CONSENT);
+
+  const [consentError, setConsentError] =
+    useState<string | null>(null);
+
+  const consentComplete =
+    isLegalConsentComplete(consent);
 
   const redirectByRole = (
     role: string
@@ -68,6 +88,15 @@ export function Register() {
 
     e.preventDefault();
 
+    if (!isLegalConsentComplete(consent)) {
+      setConsentError(
+        'Debes aceptar los términos y condiciones y la autorización de ubicación para registrarte.'
+      );
+      return;
+    }
+
+    setConsentError(null);
+
     if (
       formData.password !==
       formData.confirmPassword
@@ -84,6 +113,9 @@ export function Register() {
 
       setLoading(true);
 
+      const role: PublicAuthRole =
+        formData.role === 'PROVIDER' ? 'PROVIDER' : 'USER';
+
       const response = await api.post(
         '/auth/register',
         {
@@ -92,7 +124,7 @@ export function Register() {
           password: formData.password,
           phoneNumber:
             formData.phoneNumber,
-          role: formData.role,
+          role,
         }
       );
 
@@ -117,7 +149,9 @@ export function Register() {
 
       alert(
         error?.response?.data?.message ||
-        'Error registrando usuario'
+        (error?.response
+          ? 'Error registrando usuario'
+          : toSpanishAuthError(error))
       );
 
     } finally {
@@ -140,43 +174,34 @@ export function Register() {
   };
 
   return (
+    <div className="flex min-h-screen w-full items-center justify-center bg-gray-50 px-4 py-12">
+      <Card className="w-full max-w-lg gap-0 rounded-2xl border-0 bg-white shadow-lg">
+        <CardHeader className="gap-1 px-6 pt-5 pb-3">
+          <Button
+            variant="ghost"
+            onClick={() => navigate(-1)}
+            className="mb-1 h-8 w-fit self-start px-2 text-sm"
+          >
+            ← Volver
+          </Button>
 
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-
-      <Card className="w-full max-w-md shadow-lg border-0">
-
-        {/* BOTON VOLVER */}
-        <Button
-          variant="ghost"
-          onClick={() => navigate(-1)}
-          className="mb-4"
-        >
-          ← Volver
-        </Button>
-
-        {/* HEADER */}
-        <CardHeader className="space-y-1">
-
-          <CardTitle className="text-2xl text-center">
+          <CardTitle className="text-center text-2xl">
             Crear cuenta
           </CardTitle>
 
           <CardDescription className="text-center">
-            Completa el formulario
-            para registrarte
+            Completa el formulario para registrarte
           </CardDescription>
-
         </CardHeader>
 
-        <CardContent>
-
+        <CardContent className="px-6 pt-1 pb-6">
           <form
             onSubmit={handleSubmit}
-            className="space-y-4"
+            className="space-y-3"
           >
 
             {/* NAME */}
-            <div className="space-y-2">
+            <div className="space-y-1">
 
               <Label htmlFor="name">
                 Nombre completo
@@ -194,7 +219,7 @@ export function Register() {
             </div>
 
             {/* EMAIL */}
-            <div className="space-y-2">
+            <div className="space-y-1">
 
               <Label htmlFor="email">
                 Correo
@@ -212,7 +237,7 @@ export function Register() {
             </div>
 
             {/* PHONE */}
-            <div className="space-y-2">
+            <div className="space-y-1">
 
               <Label htmlFor="phoneNumber">
                 Teléfono
@@ -232,7 +257,7 @@ export function Register() {
             </div>
 
             {/* PASSWORD */}
-            <div className="space-y-2">
+            <div className="space-y-1">
 
               <Label htmlFor="password">
                 Contraseña
@@ -282,7 +307,7 @@ export function Register() {
             </div>
 
             {/* CONFIRM PASSWORD */}
-            <div className="space-y-2">
+            <div className="space-y-1">
 
               <Label htmlFor="confirmPassword">
                 Confirmar contraseña
@@ -332,7 +357,7 @@ export function Register() {
             </div>
 
             {/* ROLE */}
-            <div className="space-y-2">
+            <div className="space-y-1">
 
               <Label htmlFor="role">
                 Rol
@@ -342,7 +367,7 @@ export function Register() {
                 id="role"
                 value={formData.role}
                 onChange={handleChange}
-                className="w-full border rounded-lg p-2 h-10"
+                className="h-9 w-full rounded-lg border bg-input-background px-3 text-sm"
               >
 
                 <option value="USER">
@@ -357,10 +382,35 @@ export function Register() {
 
             </div>
 
+            <LegalConsentChecklist
+              value={consent}
+              onChange={(next) => {
+                setConsent(next);
+                if (isLegalConsentComplete(next)) {
+                  setConsentError(null);
+                }
+              }}
+              disabled={loading}
+              idPrefix="register-consent"
+            />
+
+            {consentError && !consentComplete && (
+              <p className="text-sm text-red-600" role="alert">
+                {consentError}
+              </p>
+            )}
+
             {/* BUTTON */}
             <Button
               type="submit"
               disabled={loading}
+              onClick={() => {
+                if (!isLegalConsentComplete(consent)) {
+                  setConsentError(
+                    'Debes aceptar los términos y condiciones y la autorización de ubicación para registrarte.'
+                  );
+                }
+              }}
               className="w-full bg-blue-600 hover:bg-blue-700 rounded-full"
             >
 
@@ -373,7 +423,7 @@ export function Register() {
           </form>
 
           {/* FOOTER */}
-          <div className="mt-4 text-center text-sm">
+          <div className="mt-3 text-center text-sm">
 
             <span className="text-gray-600">
               ¿Ya tienes cuenta?
@@ -381,6 +431,8 @@ export function Register() {
 
             <Link
               to="/login"
+              replace
+              onClick={(event) => goBackOnAuthLinkClick(event, navigate)}
               className="text-blue-600 hover:underline font-medium ml-1"
             >
               Iniciar sesión
