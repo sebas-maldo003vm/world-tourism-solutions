@@ -1,13 +1,12 @@
 package com.worldturism.spring.app.presentation.controller;
 
 import com.worldturism.spring.app.application.service.AnalyticsEventService;
-import com.worldturism.spring.app.domain.model.AppUser;
+import com.worldturism.spring.app.presentation.dto.AnalyticsEventBatchRequest;
 import com.worldturism.spring.app.presentation.dto.AnalyticsEventRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,7 +15,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/analytics/events")
-@Tag(name = "Analítica", description = "Registro de eventos de búsqueda, vista y clic para reportes.")
+@Tag(
+		name = "Analítica",
+		description = "Incrementa contadores diarios por proveedor (no inserta filas crudas por impresión).")
 public class AnalyticsEventController {
 
 	private final AnalyticsEventService analyticsEventService;
@@ -26,13 +27,22 @@ public class AnalyticsEventController {
 	}
 
 	@PostMapping
-	@ResponseStatus(HttpStatus.CREATED)
+	@ResponseStatus(HttpStatus.NO_CONTENT)
 	@Operation(
 			summary = "Registrar evento de analítica",
-			description = "Registra un evento SEARCH, VIEW o CLICK. Accesible sin autenticación (usuarios anónimos también generan datos de analítica).")
-	public void record(
-			@AuthenticationPrincipal AppUser user,
-			@Valid @RequestBody AnalyticsEventRequest request) {
-		analyticsEventService.record(user, request);
+			description = "Incrementa views/clicks/searches del día para un proveedor. "
+					+ "Accesible sin autenticación (anónimos también generan métricas).")
+	public void record(@Valid @RequestBody AnalyticsEventRequest request) {
+		analyticsEventService.record(request);
+	}
+
+	@PostMapping("/batch")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	@Operation(
+			summary = "Registrar lote de eventos",
+			description = "Agrupa hasta 40 eventos en un solo request (p. ej. SEARCH atribuido a resultados). "
+					+ "Colapsa por proveedor antes del UPSERT.")
+	public void recordBatch(@Valid @RequestBody AnalyticsEventBatchRequest request) {
+		analyticsEventService.recordBatch(request.events());
 	}
 }
