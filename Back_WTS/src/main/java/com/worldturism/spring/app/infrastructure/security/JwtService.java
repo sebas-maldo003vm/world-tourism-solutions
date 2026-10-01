@@ -14,13 +14,15 @@ import org.springframework.stereotype.Service;
 @Service
 public class JwtService {
 
-	private final String secret;
+	private static final int MIN_KEY_BYTES = 32;
+
+	private final SecretKey signingKey;
 	private final long expirationMillis;
 
 	public JwtService(
 			@Value("${app.jwt.secret}") String secret,
 			@Value("${app.jwt.expiration-millis}") long expirationMillis) {
-		this.secret = secret;
+		this.signingKey = buildSigningKey(secret);
 		this.expirationMillis = expirationMillis;
 	}
 
@@ -59,7 +61,27 @@ public class JwtService {
 	}
 
 	private SecretKey getSigningKey() {
-		byte[] keyBytes = Decoders.BASE64.decode(secret);
+		return signingKey;
+	}
+
+	private static SecretKey buildSigningKey(String secret) {
+		if (secret == null || secret.isBlank()) {
+			throw new IllegalStateException(
+					"JWT_SECRET is required and must be a Base64-encoded key of at least 32 bytes.");
+		}
+
+		final byte[] keyBytes;
+		try {
+			keyBytes = Decoders.BASE64.decode(secret.trim());
+		} catch (RuntimeException exception) {
+			throw new IllegalStateException(
+					"JWT_SECRET must be a valid Base64-encoded key of at least 32 bytes.");
+		}
+
+		if (keyBytes.length < MIN_KEY_BYTES) {
+			throw new IllegalStateException("JWT_SECRET must decode to at least 32 bytes.");
+		}
+
 		return Keys.hmacShaKeyFor(keyBytes);
 	}
 }
