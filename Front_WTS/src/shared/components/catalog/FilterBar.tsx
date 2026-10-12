@@ -22,6 +22,7 @@ interface FilterBarProps {
   onFilterChange: (filters: Filters) => void;
   userPosition?: GeoPoint | null;
   onUserPositionChange?: (position: GeoPoint & { accuracy: number }) => void;
+  onRequestManualLocation?: () => void;
 }
 
 export function FilterBar({
@@ -31,6 +32,7 @@ export function FilterBar({
   onFilterChange,
   userPosition,
   onUserPositionChange,
+  onRequestManualLocation, // <-- Añadido aquí para recibirlo de las props
 }: FilterBarProps) {
   const [open, setOpen] = useState(false);
   const activeCount = countActiveFilters(filters);
@@ -88,6 +90,7 @@ export function FilterBar({
         onClose={() => setOpen(false)}
         onApply={onFilterChange}
         onUserPositionChange={onUserPositionChange}
+        onRequestManualLocation={onRequestManualLocation} 
       />
     </div>
   );

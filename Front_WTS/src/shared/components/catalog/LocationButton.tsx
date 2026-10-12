@@ -3,10 +3,11 @@ import { useGeolocation, type UserCoords } from '../../hooks/useGeolocation';
 
 interface LocationButtonProps {
   onLocationChange: (pos: UserCoords | null) => void;
+  /** Opcional: ofrece elegir la ubicación a mano (p. ej. si el GPS falla). */
+  onManualSelect?: () => void;
 }
 
-export function LocationButton({ onLocationChange }: LocationButtonProps) {
-  const { status, position, errorMessage, requestLocation } = useGeolocation();
+export function LocationButton({ onLocationChange, onManualSelect }: LocationButtonProps) {  const { status, position, errorMessage, requestLocation } = useGeolocation();
 
   // Cada vez que obtenemos una posición nueva, se la pasamos al componente padre
   useEffect(() => {
@@ -14,7 +15,11 @@ export function LocationButton({ onLocationChange }: LocationButtonProps) {
       onLocationChange(position);
     }
   }, [status, position, onLocationChange]);
-
+const locationFailed =
+    status === 'denied' ||
+    status === 'timeout' ||
+    status === 'unavailable' ||
+    status === 'unsupported';
   return (
     <div className="flex flex-col gap-2">
       <button
@@ -38,6 +43,21 @@ export function LocationButton({ onLocationChange }: LocationButtonProps) {
       )}
       {status === 'unsupported' && (
         <p className="text-sm text-red-600">{errorMessage}</p>
+      )}
+      {onManualSelect && (
+        <button
+          type="button"
+          onClick={onManualSelect}
+          className={
+            locationFailed
+              ? 'px-3 py-2 rounded border border-blue-600 text-blue-700 text-sm font-medium hover:bg-blue-50'
+              : 'text-left text-sm text-blue-700 underline'
+          }
+        >
+          {locationFailed
+            ? '📌 Elegir mi ubicación en el mapa'
+            : 'o elegir mi ubicación manualmente'}
+        </button>
       )}
     </div>
   );

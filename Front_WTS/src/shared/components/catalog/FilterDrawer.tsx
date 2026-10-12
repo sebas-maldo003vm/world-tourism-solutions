@@ -40,6 +40,7 @@ interface FilterDrawerProps {
   onClose: () => void;
   onApply: (filters: Filters) => void;
   onUserPositionChange?: (position: GeoPoint & { accuracy: number }) => void;
+  onRequestManualLocation?: () => void;
 }
 
 export function FilterDrawer({
@@ -51,6 +52,7 @@ export function FilterDrawer({
   onClose,
   onApply,
   onUserPositionChange,
+  onRequestManualLocation,
 }: FilterDrawerProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLElement>(null);
@@ -58,6 +60,7 @@ export function FilterDrawer({
   const [visible, setVisible] = useState(false);
   const [draft, setDraft] = useState<Filters>(filters);
   const wasOpen = useRef(false);
+  const awaitingManualRef = useRef(false);
   const onUserPositionChangeRef = useRef(onUserPositionChange);
   const { status, position, errorMessage, requestLocation, reset } =
     useGeolocation();
@@ -108,6 +111,10 @@ export function FilterDrawer({
       );
 
       if (selectOpen) {
+        return;
+      }
+
+      if (document.querySelector('[data-manual-location-dialog]')) {
         return;
       }
 
@@ -169,6 +176,7 @@ export function FilterDrawer({
     };
   }, [visible]);
 
+  // Maneja el éxito de la geolocalización automática
   useEffect(() => {
     if (status !== 'success' || !position) {
       return;
@@ -181,6 +189,25 @@ export function FilterDrawer({
     }));
     onUserPositionChangeRef.current?.(position);
   }, [status, position]);
+
+  // Maneja la actualización cuando se selecciona una ubicación manual en el mapa
+  useEffect(() => {
+    if (!open) {
+      awaitingManualRef.current = false;
+      return;
+    }
+
+    if (!awaitingManualRef.current || !userPosition) {
+      return;
+    }
+
+    awaitingManualRef.current = false;
+    setDraft((current) => ({
+      ...current,
+      origin: { lat: userPosition.lat, lng: userPosition.lng },
+      radiusKm: current.radiusKm ?? DEFAULT_RADIUS_KM,
+    }));
+  }, [open, userPosition]);
 
   const updateDraft = (patch: Partial<Filters>) => {
     setDraft((current) => ({ ...current, ...patch }));
@@ -218,6 +245,12 @@ export function FilterDrawer({
   const disableProximity = () => {
     updateDraft({ origin: null, radiusKm: null });
     reset();
+  };
+
+  // Función corregida y colocada en el ámbito correcto del componente
+  const requestManualLocation = () => {
+    awaitingManualRef.current = true;
+    onRequestManualLocation?.();
   };
 
   const handlePriceSlider = (value: number[]) => {
@@ -400,6 +433,17 @@ export function FilterDrawer({
                     Los servicios sin coordenadas no se incluyen en este filtro.
                   </p>
 
+                  {onRequestManualLocation && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={requestManualLocation}
+                      className="h-8 px-2 text-sm text-blue-700"
+                    >
+                      Elegir otro punto en el mapa
+                    </Button>
+                  )}
+
                   <Button
                     type="button"
                     variant="ghost"
@@ -428,6 +472,23 @@ export function FilterDrawer({
                   </Button>
                   {errorMessage && (
                     <p className="text-sm text-red-600">{errorMessage}</p>
+                  )}
+                  {onRequestManualLocation && (
+                    <Button
+                      type="button"
+                      variant={errorMessage ? 'outline' : 'ghost'}
+                      onClick={requestManualLocation}
+                      className={`w-full rounded-full ${
+                        errorMessage
+                          ? 'border-blue-600 text-blue-700 hover:bg-blue-50'
+                          : 'text-blue-700'
+                      }`}
+                    >
+                      <MapPin className="h-4 w-4" />
+                      {errorMessage
+                        ? 'Elegir mi ubicación en el mapa'
+                        : 'o elegir mi ubicación en el mapa'}
+                    </Button>
                   )}
                 </div>
               )}

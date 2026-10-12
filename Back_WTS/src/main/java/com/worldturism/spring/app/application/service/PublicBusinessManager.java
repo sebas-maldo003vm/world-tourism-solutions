@@ -26,6 +26,29 @@ public class PublicBusinessManager {
 				.map(PublicBusinessResponse::from)
 				.toList();
 	}
+@Transactional(readOnly = true)
+	public List<PublicBusinessResponse> list(Double lat, Double lng, Double radiusKm) {
+		boolean noProximity = lat == null && lng == null && radiusKm == null;
+		if (noProximity) {
+			return listAll();
+		}
+
+		if (lat == null || lng == null || radiusKm == null) {
+			throw new IllegalArgumentException("Para filtrar por cercanía envía lat, lng y radiusKm.");
+		}
+		if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+			throw new IllegalArgumentException("Coordenadas fuera de rango.");
+		}
+		if (radiusKm <= 0 || radiusKm > 500) {
+			throw new IllegalArgumentException("El radio debe estar entre 0 y 500 km.");
+		}
+
+		return providerProfileRepository.findApprovedWithinRadius(lat, lng, radiusKm * 1000.0)
+				.stream()
+				.map(PublicBusinessResponse::from)
+				.toList();
+	}
+
 
 	@Transactional(readOnly = true)
 	public PublicBusinessResponse getById(Long businessId, AppUser currentUser) {

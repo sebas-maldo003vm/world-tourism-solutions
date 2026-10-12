@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface ProviderProfileRepository extends JpaRepository<ProviderProfile, Long> {
 
@@ -19,6 +20,23 @@ public interface ProviderProfileRepository extends JpaRepository<ProviderProfile
 	List<ProviderProfile> findAllByOrderByIdDesc();
 
 	List<ProviderProfile> findByStatusOrderByIdDesc(ServiceStatus status);
+
+@Query(value = """
+			SELECT p.*
+			FROM provider_profiles p
+			WHERE p.status = 'APPROVED'
+			  AND p.location IS NOT NULL
+			  AND ST_DWithin(
+			        p.location,
+			        CAST(ST_SetSRID(ST_MakePoint(:lng, :lat), 4326) AS geography),
+			        :radiusMeters)
+			ORDER BY p.id DESC
+			""", nativeQuery = true)
+	List<ProviderProfile> findApprovedWithinRadius(
+			@Param("lat") double lat,
+			@Param("lng") double lng,
+			@Param("radiusMeters") double radiusMeters);
+
 
 	long countByStatus(ServiceStatus status);
 }

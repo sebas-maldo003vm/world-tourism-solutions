@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Columns2, LayoutList, Map, type LucideIcon } from 'lucide-react';
 import { ServiceCard } from '@/shared/components/catalog/ServiceCard';
@@ -10,6 +10,12 @@ import {
 } from '@/shared/components/catalog/FilterBar';
 import { MapView } from '@/shared/components/catalog/MapView';
 import { LocationButton } from '@/shared/components/catalog/LocationButton';
+import { ManualLocationDialog } from '@/shared/components/catalog/ManualLocationDialog';
+import {
+  UserLocationBar,
+  type LocationSource,
+} from '@/shared/components/catalog/UserLocationBar';
+
 import type { UserCoords } from '@/shared/hooks/useGeolocation';
 import { api } from '@/core/api/client';
 import { trackEvent, trackEventBatch } from '@/core/analytics/trackEvent';
@@ -67,6 +73,7 @@ function CatalogViewToggle({
 }) {
   return (
     <div
+    
       role="tablist"
       aria-label="Modo de visualización"
       className="hidden items-center rounded-full border border-gray-200 bg-white p-1 shadow-sm lg:inline-flex"
@@ -104,6 +111,9 @@ export function HomeUsuarioLogueado() {
   const [services, setServices] = useState<Service[]>([]);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [loading, setLoading] = useState(true);
+const [locationSource, setLocationSource] = useState<LocationSource | null>(null);
+  const [manualPickerOpen, setManualPickerOpen] = useState(false);
+
 
   useEffect(() => {
     const media = window.matchMedia(DESKTOP_QUERY);
@@ -118,22 +128,68 @@ export function HomeUsuarioLogueado() {
     return () => media.removeEventListener('change', syncMobileDefault);
   }, []);
 
+  //useEffect(() => {
+   // loadServices();
+  //}, []);
+
+  //const loadServices = async () => {
+   // try {
+    //  const response = await api.get('/businesses');
+
+    //  setServices(Array.isArray(response.data) ? response.data : [response.data]);
+    //} catch (error) {
+     // console.error(error);
+    //  alert('Error cargando servicios');
+   // } finally {
+   //   setLoading(false);
+   // }
+  //};
+// Cercanía: el cliente solo envía origen y radio; PostgreSQL resuelve ST_DWithin.
+  const originLat = filters.origin?.lat ?? null;
+  const originLng = filters.origin?.lng ?? null;
+  const radiusKm = filters.radiusKm;
+  const proximityActive =
+    originLat != null && originLng != null && radiusKm != null;
+
   useEffect(() => {
+    let cancelled = false;
+
+    const loadServices = async () => {
+      try {
+        setLoading(true);
+
+        const response = await api.get('/businesses', {
+          params: proximityActive
+            ? { lat: originLat, lng: originLng, radiusKm }
+            : undefined,
+        });
+
+        if (cancelled) return;
+
+        setServices(Array.isArray(response.data) ? response.data : [response.data]);
+      } catch (error) {
+        if (cancelled) return;
+        console.error(error);
+        alert('Error cargando servicios');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
     loadServices();
-  }, []);
 
-  const loadServices = async () => {
-    try {
-      const response = await api.get('/businesses');
+    return () => {
+      cancelled = true;
+    };
+  }, [proximityActive, originLat, originLng, radiusKm]);
 
-      setServices(Array.isArray(response.data) ? response.data : [response.data]);
-    } catch (error) {
-      console.error(error);
-      alert('Error cargando servicios');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // El radio ya lo aplicó el backend: se neutraliza aquí para no duplicar Haversine.
+  const clientFilters = useMemo<Filters>(
+    () => ({ ...filters, origin: null, radiusKm: null }),
+    [filters],
+  );
+
+
 
   const categories = Array.from(
     new Set(services.map((service) => service.category).filter(Boolean) as string[]),
@@ -162,10 +218,10 @@ export function HomeUsuarioLogueado() {
             latitude: service.latitude,
             longitude: service.longitude,
           },
-          filters,
+          clientFilters,
         ),
       ),
-    [services, filters],
+    [services, clientFilters],
   );
 
   // SEARCH con debounce: un solo lote atribuido a proveedores que coinciden con la query.
@@ -218,6 +274,53 @@ export function HomeUsuarioLogueado() {
     [filteredServices],
   );
 
+// Callback ESTABLE (sin dependencias): LocationButton lo usa en un useEffect y,
+  // si cambiara de identidad, volvería a emitir la posición GPS y pisaría la manual.
+  const handleDeviceLocation = useCallback((pos: UserCoords | null) => {
+    setUserPosition(pos);
+    setLocationSource(pos ? 'gps' : null);
+  }, []);
+
+  const handleManualLocation = useCallback((point: { lat: number; lng: number }) => {
+    setUserPosition({ lat: point.lat, lng: point.lng, accuracy: 0 });
+    setLocationSource('manual');
+    // Si el filtro de cercanía ya está activo, mueve su origen para no dejar resultados obsoletos.
+    setFilters((current) =>
+      current.radiusKm != null
+        ? { ...current, origin: { lat: point.lat, lng: point.lng } }
+        : current,
+    );
+    setManualPickerOpen(false);
+  }, []);
+
+  const handleClearLocation = useCallback(() => {
+    setUserPosition(null);
+    setLocationSource(null);
+    setFilters((current) =>
+      current.radiusKm != null || current.origin != null
+        ? { ...current, origin: null, radiusKm: null }
+        : current,
+    );
+  }, []);
+
+  const openManualPicker = useCallback(() => setManualPickerOpen(true), []);
+  const closeManualPicker = useCallback(() => setManualPickerOpen(false), []);
+
+  // Memoizado: MapView re-encuadra el mapa cada vez que cambia la identidad de userPosition.
+  // accuracy = undefined en manual evita dibujar el círculo y el "0" suelto de
+  // `{userPosition.accuracy && (...)}` en MapView.
+  const mapUserPosition = useMemo(
+    () =>
+      userPosition
+        ? {
+            lat: userPosition.lat,
+            lng: userPosition.lng,
+            accuracy: locationSource === 'gps' ? userPosition.accuracy : undefined,
+          }
+        : null,
+    [userPosition, locationSource],
+  );
+
   const showList = viewMode !== 'map';
   const showMap = viewMode !== 'list';
   const showingMapOnMobile = viewMode === 'map';
@@ -238,7 +341,9 @@ export function HomeUsuarioLogueado() {
         locations={locations}
         onFilterChange={setFilters}
         userPosition={userPosition}
-        onUserPositionChange={setUserPosition}
+       // onUserPositionChange={setUserPosition}
+       onUserPositionChange={handleDeviceLocation}
+      onRequestManualLocation={openManualPicker}
       />
 
       <div
@@ -256,6 +361,13 @@ export function HomeUsuarioLogueado() {
 
           <CatalogViewToggle value={viewMode} onChange={setViewMode} />
         </div>
+ <UserLocationBar
+          position={userPosition}
+          source={locationSource}
+          onPickManual={openManualPicker}
+          onClear={handleClearLocation}
+        />
+
 
         <div className={showList && showMap ? 'flex gap-6' : undefined}>
           {showList && (
@@ -275,7 +387,8 @@ export function HomeUsuarioLogueado() {
                       key={service.id}
                       service={{
                         id: service.id.toString(),
-                        // ProviderResponse.id = ProviderProfile.id (lo que exige startConversation)
+                        // ProviderResponse.id = ProviderProfile.id (lo que exige startConversation)                       <LocationButton onLocationChange={setUserPosition} />
+
                         providerId: service.id,
                         name: getServiceName(service),
                         description: service.description || '',
@@ -307,7 +420,10 @@ export function HomeUsuarioLogueado() {
             >
               <div className={viewMode === 'map' ? undefined : 'sticky top-32'}>
                 <div className="mb-3">
-                  <LocationButton onLocationChange={setUserPosition} />
+                <LocationButton
+                    onLocationChange={handleDeviceLocation}
+                    onManualSelect={openManualPicker}
+                  />
                 </div>
 
                 <div
@@ -321,7 +437,8 @@ export function HomeUsuarioLogueado() {
                     layoutKey={viewMode}
                     services={mapServices}
                     onServiceClick={handleMapServiceClick}
-                    userPosition={userPosition}
+                    //userPosition={userPosition}
+                    userPosition={mapUserPosition}
                   />
                 </div>
               </div>
@@ -337,6 +454,12 @@ export function HomeUsuarioLogueado() {
       >
         {viewMode === 'map' ? 'Ver lista 📄' : 'Ver mapa 🗺️'}
       </button>
+      <ManualLocationDialog
+        open={manualPickerOpen}
+        initialPosition={userPosition ? { lat: userPosition.lat, lng: userPosition.lng } : null}
+        onClose={closeManualPicker}
+        onConfirm={handleManualLocation}
+      />
     </div>
   );
 }
