@@ -21,22 +21,44 @@ public interface ProviderProfileRepository extends JpaRepository<ProviderProfile
 
 	List<ProviderProfile> findByStatusOrderByIdDesc(ServiceStatus status);
 
-@Query(value = """
-			SELECT p.*
-			FROM provider_profiles p
-			WHERE p.status = 'APPROVED'
-			  AND p.location IS NOT NULL
-			  AND ST_DWithin(
-			        p.location,
-			        CAST(ST_SetSRID(ST_MakePoint(:lng, :lat), 4326) AS geography),
-			        :radiusMeters)
-			ORDER BY p.id DESC
-			""", nativeQuery = true)
-	List<ProviderProfile> findApprovedWithinRadius(
-			@Param("lat") double lat,
-			@Param("lng") double lng,
-			@Param("radiusMeters") double radiusMeters);
+	@Query("""
+    SELECT DISTINCT p
+    FROM ProviderProfile p
+    LEFT JOIN FETCH p.images
+    WHERE p.status = :status
+    ORDER BY p.id DESC
+    """)
+List<ProviderProfile> findByStatusWithImagesOrderByIdDesc(
+        @Param("status") ServiceStatus status
+);
 
+@Query(value = """
+    SELECT p.id
+    FROM provider_profiles p
+    WHERE p.status = 'APPROVED'
+      AND p.location IS NOT NULL
+      AND ST_DWithin(
+            p.location,
+            CAST(ST_SetSRID(ST_MakePoint(:lng, :lat), 4326) AS geography),
+            :radiusMeters
+      )
+    ORDER BY p.id DESC
+    """, nativeQuery = true)
+List<Long> findApprovedIdsWithinRadius(
+        @Param("lat") double lat,
+        @Param("lng") double lng,
+        @Param("radiusMeters") double radiusMeters
+);
+
+@Query("""
+    SELECT DISTINCT p
+    FROM ProviderProfile p
+    LEFT JOIN FETCH p.images
+    WHERE p.id IN :ids
+    """)
+List<ProviderProfile> findAllWithImagesByIdIn(
+        @Param("ids") List<Long> ids
+);
 
 	long countByStatus(ServiceStatus status);
 }

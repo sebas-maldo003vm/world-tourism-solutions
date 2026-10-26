@@ -9,6 +9,9 @@ import com.worldturism.spring.app.presentation.dto.PublicBusinessResponse;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class PublicBusinessManager {
@@ -20,12 +23,13 @@ public class PublicBusinessManager {
 	}
 
 	@Transactional(readOnly = true)
-	public List<PublicBusinessResponse> listAll() {
-		return providerProfileRepository.findByStatusOrderByIdDesc(ServiceStatus.APPROVED)
-				.stream()
-				.map(PublicBusinessResponse::from)
-				.toList();
-	}
+public List<PublicBusinessResponse> listAll() {
+    return providerProfileRepository
+            .findByStatusWithImagesOrderByIdDesc(ServiceStatus.APPROVED)
+            .stream()
+            .map(PublicBusinessResponse::from)
+            .toList();
+}
 @Transactional(readOnly = true)
 	public List<PublicBusinessResponse> list(Double lat, Double lng, Double radiusKm) {
 		boolean noProximity = lat == null && lng == null && radiusKm == null;
@@ -43,10 +47,30 @@ public class PublicBusinessManager {
 			throw new IllegalArgumentException("El radio debe estar entre 0 y 500 km.");
 		}
 
-		return providerProfileRepository.findApprovedWithinRadius(lat, lng, radiusKm * 1000.0)
-				.stream()
-				.map(PublicBusinessResponse::from)
-				.toList();
+		List<Long> ids = providerProfileRepository
+        .findApprovedIdsWithinRadius(
+                lat,
+                lng,
+                radiusKm * 1000.0
+        );
+
+if (ids.isEmpty()) {
+    return List.of();
+}
+
+Map<Long, ProviderProfile> profilesById =
+        providerProfileRepository.findAllWithImagesByIdIn(ids)
+                .stream()
+                .collect(Collectors.toMap(
+                        ProviderProfile::getId,
+                        Function.identity()
+                ));
+
+return ids.stream()
+        .map(profilesById::get)
+        .filter(java.util.Objects::nonNull)
+        .map(PublicBusinessResponse::from)
+        .toList();
 	}
 
 
