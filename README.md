@@ -25,7 +25,7 @@ Plataforma de gestión de servicios turísticos, publicaciones comerciales, rese
 
 | Capacidad | Descripción |
 |-----------|-------------|
-| Catálogo comercial | Publicación y descubrimiento de perfiles/servicios de proveedores |
+| Catálogo comercial | Publicación y descubrimiento de perfiles/servicios de proveedores. Proximidad en servidor (`GET /api/businesses?lat=&lng=&radiusKm=`) |
 | Reservas | Solicitud, cotización y seguimiento del estado de reservas |
 | Mensajería | Chat cliente ↔ proveedor, cola de soporte humano y asistente virtual |
 | Itinerario | Reservas `PENDING`, `APPROVED` y `COMPLETED` agrupadas por ciudad, con calendario y filtro por día (`GET /api/bookings/itinerary?date=`) |
@@ -125,7 +125,10 @@ world-tourism-solutions/
 │   ├── package.json
 │   ├── vite.config.ts
 │   └── .env                       # Variables Vite (crear localmente)
-├── .gitignore
+├── pruebas-carga/                 # Scripts k6 y resultados de lecturas públicas
+│   ├── k6/businesses.js
+│   └── resultados/                # Salidas de corridas (5 / 10 / 25 VU)
+├── .gitignore                     # Incluye `Back_WTS/env` y artefactos de build
 └── README.md
 ```
 
@@ -137,7 +140,9 @@ El esquema vive en **PostgreSQL** (Supabase). Hibernate opera con `ddl-auto=vali
 
 ### PostGIS
 
-`provider_profiles` persiste `latitude` / `longitude`. La columna `location` (`geography(Point, 4326)`) se deriva en PostgreSQL y dispone de índice espacial GIST. La búsqueda por radio en API REST **aún no está expuesta**; el frontend filtra proximidad en cliente (Haversine) sobre las coordenadas recibidas.
+`provider_profiles` persiste `latitude` / `longitude`. La columna `location` (`geography(Point, 4326)`) se deriva en PostgreSQL y dispone de índice espacial GIST.
+
+`GET /api/businesses` acepta el trío opcional `lat`, `lng` y `radiusKm`. Si los tres se omiten, lista perfiles `APPROVED`. Si se envían, filtra con `ST_DWithin` sobre `location` (radio en metros = `radiusKm * 1000`). Los tres parámetros son obligatorios en conjunto; el radio debe ser mayor que 0 y a lo sumo 500 km. El catálogo autenticado puede fijar el origen con geolocalización del navegador o con un punto elegido a mano.
 
 ### ENUMs nativos (PostgreSQL)
 
@@ -278,7 +283,7 @@ Estas cuatro rutas siguen activas y delegan en el mismo servicio que `/api/suppo
 | Prefijo | Controlador | Operaciones |
 |---------|-------------|-------------|
 | `/api/users/profile` | `UserController` | `GET /me`, `PUT /`, `POST /picture`, `PUT /picture`, `PUT /password` |
-| `/api/businesses` | `PublicBusinessController` | `GET /`, `GET /{businessId}` |
+| `/api/businesses` | `PublicBusinessController` | `GET /` (query opcional `lat`, `lng`, `radiusKm`), `GET /{businessId}` |
 | `/api/provider/business` | `ProviderBusinessController` | `POST /`, `GET /`, `PUT /{businessId}`, `DELETE /{businessId}` |
 | `/api/reviews` | `ReviewController` | `POST /`, `GET /me`, `GET /businesses/{businessId}` |
 | `/api/favorites` | `FavoritesController` | `POST /{providerProfileId}`, `DELETE /{providerProfileId}`, `GET /`, `GET /{providerProfileId}/status`. Solo rol `USER` |
@@ -317,7 +322,7 @@ CORS de desarrollo: `http://localhost:5173`, `http://localhost:3000`, `http://lo
 
 - Perfiles con galería, precio, categoría, ciudad y coordenadas
 - Mapa con **Leaflet** (tiles OpenStreetMap)
-- Filtros de proximidad en el cliente (radio en km + geolocalización del navegador)
+- Filtro de cercanía en el servidor (PostGIS). Origen: geolocalización del navegador o selección manual del punto
 
 ### Reservas e itinerario
 
@@ -387,6 +392,7 @@ CORS de desarrollo: `http://localhost:5173`, `http://localhost:3000`, `http://lo
 | **JDK** | 17+ |
 | **Node.js** | 18+ (npm incluido) |
 | **Maven** | Opcional; se recomienda el wrapper incluido |
+| **k6** | Opcional; solo para `pruebas-carga/k6/businesses.js` |
 
 ### 1. Clonar el repositorio
 
@@ -503,6 +509,29 @@ npm run dev
 |---------|-----|
 | App | http://localhost:5173 |
 
+### Pruebas de carga (k6)
+
+Lecturas públicas, sin autenticación: `pruebas-carga/k6/businesses.js`. Escenarios secuenciales sobre `GET /api/businesses` (espacial, listado y detalle).
+
+```bash
+# Humo (por defecto)
+k6 run pruebas-carga/k6/businesses.js
+
+# Carga. VUS > 10 exige -e CONFIRMO_CARGA_ALTA=si
+k6 run -e PERFIL=carga -e VUS=10 pruebas-carga/k6/businesses.js
+```
+
+| Variable (`-e`) | Efecto |
+|-----------------|--------|
+| `BASE_URL` | Por defecto `http://localhost:8080` |
+| `PERFIL` | `smoke` o `carga` |
+| `VUS` | Pico de usuarios virtuales en `carga` (por defecto 5) |
+| `THINK_TIME_S` | Pausa entre peticiones (por defecto 1) |
+| `BUSINESS_IDS` | IDs para el escenario de detalle, separados por coma |
+| `CONFIRMO_CARGA_ALTA` | Obligatorio con valor `si` si `VUS > 10` |
+
+Hay resultados de referencia en `pruebas-carga/resultados/` (`carga-5vu`, `carga-10vu`, `carga-25vu`).
+
 ### Producción — Frontend
 
 ```bash
@@ -518,9 +547,9 @@ El artefacto queda en `Front_WTS/dist/`. El backend se empaqueta con el plugin d
 
 | Prioridad | Tarea | Estado / objetivo |
 |-----------|-------|-------------------|
-| Alta | **API geoespacial** | PostGIS + `location` + GIST listos en BD. Pendiente exponer búsqueda por radio/distancia en REST |
+| Alta | **API geoespacial** | Expuesta: `GET /api/businesses?lat=&lng=&radiusKm=` (`ST_DWithin`, radio 0–500 km) |
 | Media | **Pasarela de pagos** | Cobro y confirmación de reservas en plataforma |
-| Media | **Cobertura de pruebas** | Ampliar unitarias e integración en backend y frontend |
+| Media | **Cobertura de pruebas** | k6 de lecturas públicas en `pruebas-carga/`. Pendiente ampliar unitarias e integración |
 
 ---
 
