@@ -1,0 +1,32 @@
+# Etapa de compilación
+FROM eclipse-temurin:17-jdk-jammy AS build
+WORKDIR /app
+
+# Copiar archivos de Maven Wrapper y configuración
+COPY mvnw pom.xml ./
+COPY .mvn .mvn
+
+# Dar permisos de ejecución a mvnw
+RUN chmod +x mvnw
+
+# Descargar dependencias
+RUN ./mvnw dependency:go-offline -B
+
+# Copiar el código fuente
+COPY src src
+
+# Compilar el proyecto omitiendo las pruebas
+RUN ./mvnw clean package -DskipTests
+
+# Etapa de ejecución (imagen ligera)
+FROM eclipse-temurin:17-jre-jammy
+WORKDIR /app
+
+# Copiar el JAR generado desde la etapa de compilación
+COPY --from=build /app/target/*.jar app.jar
+
+# Exponer el puerto por defecto de Spring Boot
+EXPOSE 8080
+
+# Comando de ejecución
+ENTRYPOINT ["java", "-jar", "app.jar"]

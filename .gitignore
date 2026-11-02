@@ -1,0 +1,31 @@
+# =========================
+# Raíz / IDEs / SO
+# =========================
+
+.env
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+*.log
+
+# =========================
+# Backend (Back_WTS) — Spring Boot / Maven / SQLite
+# =========================
+
+Back_WTS/target/
+/Back_WTS/env
+Back_WTS/*.db
+Back_WTS/*.db-shm
+Back_WTS/*.db-wal
+Back_WTS/uploads/
+Back_WTS/.mvn/
+
+# =========================
+# Frontend (Front_WTS) — React / Vite
+# =========================
+
+Front_WTS/node_modules/
+Front_WTS/dist/
+Front_WTS/.env.local
