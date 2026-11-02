@@ -2,12 +2,11 @@
 FROM eclipse-temurin:17-jdk-jammy AS build
 WORKDIR /app
 
-# Copiar archivos de Maven Wrapper y configuración
-mvnw pom.xml ./
-COPY .mvn .mvn
+# Copiar archivos de Maven Wrapper y configuración usando COPY
 COPY mvnw pom.xml ./
+COPY .mvn .mvn
 
-# Descargar dependencias (aprovechando la caché de capas)
+# Descargar dependencias
 RUN ./mvnw dependency:go-offline -B
 
 # Copiar el código fuente
