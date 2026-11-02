@@ -4,6 +4,7 @@ import com.worldturism.spring.app.application.service.UserProfileService;
 import com.worldturism.spring.app.domain.model.AppUser;
 import com.worldturism.spring.app.presentation.dto.ChangePasswordDTO;
 import com.worldturism.spring.app.presentation.dto.ProfilePictureResponse;
+import com.worldturism.spring.app.presentation.dto.ProfilePictureUrlRequest;
 import com.worldturism.spring.app.presentation.dto.UpdateProfileDTO;
 import com.worldturism.spring.app.presentation.dto.UserProfileDTO;
 import io.swagger.v3.oas.annotations.Operation;
@@ -53,6 +54,14 @@ public class UserController {
 			@AuthenticationPrincipal AppUser user,
 			@RequestParam("file") MultipartFile file) {
 		return userProfileService.uploadProfilePicture(user, file);
+	}
+
+	@PutMapping("/picture")
+	@Operation(summary = "Actualizar foto de perfil", description = "Guarda la URL publica de Supabase Storage en users.profile_picture_url.")
+	public ProfilePictureResponse updateProfilePicture(
+			@AuthenticationPrincipal AppUser user,
+			@Valid @RequestBody ProfilePictureUrlRequest request) {
+		return userProfileService.updateProfilePictureUrl(user, request.profilePictureUrl());
 	}
 
 	@PutMapping("/password")

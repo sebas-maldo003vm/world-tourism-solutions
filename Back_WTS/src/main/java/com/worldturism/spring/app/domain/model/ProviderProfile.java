@@ -18,6 +18,9 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 @Entity
 @Table(name = "provider_profiles")
 public class ProviderProfile {
@@ -57,9 +60,32 @@ public class ProviderProfile {
 	@Column(length = 300)
 	private String logoUrl;
 
+	@Column
+	private Double latitude;
+
+	public Double getLatitude() {
+		return latitude;
+	}
+
+	public void setLatitude(Double latitude) {
+		this.latitude = latitude;
+	}
+
+	public Double getLongitude() {
+		return longitude;
+	}
+
+	public void setLongitude(Double longitude) {
+		this.longitude = longitude;
+	}
+
+	@Column
+	private Double longitude;
+
 	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, length = 20)
-	private ServiceStatus status = ServiceStatus.PENDING;
+@JdbcTypeCode(SqlTypes.NAMED_ENUM)
+@Column(nullable = false, columnDefinition = "service_status_enum")
+private ServiceStatus status = ServiceStatus.PENDING;
 
 	@OneToMany(mappedBy = "providerProfile", cascade = CascadeType.ALL, orphanRemoval = true)
 	@OrderBy("imageOrder ASC")

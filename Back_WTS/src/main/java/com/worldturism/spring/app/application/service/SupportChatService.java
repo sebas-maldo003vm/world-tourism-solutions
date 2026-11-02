@@ -21,11 +21,7 @@ import com.worldturism.spring.app.presentation.dto.StartConversationRequest;
 import com.worldturism.spring.app.presentation.dto.SupportTicketResponse;
 import com.worldturism.spring.app.presentation.dto.UpdateSupportStatusRequest;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,31 +32,33 @@ public class SupportChatService {
 	private final MessageRepository messageRepository;
 	private final ProviderProfileRepository providerProfileRepository;
 	private final UserRepository userRepository;
+	private final ConversationService conversationService;
 
 	public SupportChatService(
 			ConversationRepository conversationRepository,
 			MessageRepository messageRepository,
 			ProviderProfileRepository providerProfileRepository,
-			UserRepository userRepository) {
+			UserRepository userRepository,
+			ConversationService conversationService) {
 		this.conversationRepository = conversationRepository;
 		this.messageRepository = messageRepository;
 		this.providerProfileRepository = providerProfileRepository;
 		this.userRepository = userRepository;
+		this.conversationService = conversationService;
 	}
 
 	@Transactional(readOnly = true)
 	public List<ConversationResponse> listarConversaciones(AppUser user) {
-		validateAuthenticated(user);
-		List<Conversation> conversations = findConversationsForUser(user);
-		return conversations.stream()
-				.map(conversation -> toConversationResponse(conversation, user))
+		AppUser current = conversationService.requireAuthenticatedUser(user);
+		return conversationService.listHumanInbox(current).stream()
+				.map(conversation -> toConversationResponse(conversation, current))
 				.toList();
 	}
 
 	@Transactional
 	public ConversationResponse iniciarConversacionConProveedor(AppUser user, StartConversationRequest request) {
-		validateAuthenticated(user);
-		if (user.getRole() != Role.USER) {
+		AppUser current = conversationService.requireAuthenticatedUser(user);
+		if (current.getRole() != Role.USER) {
 			throw new IllegalArgumentException("Solo los turistas pueden iniciar conversaciones con proveedores.");
 		}
 
@@ -70,16 +68,22 @@ public class SupportChatService {
 			throw new IllegalArgumentException("El negocio indicado no pertenece a un proveedor.");
 		}
 
+		String inquiry = normalizeInquiry(request.serviceName());
 		Conversation conversation = conversationRepository
 				.findByUserIdAndProviderIdAndConversationType(
-						user.getId(), providerProfile.getId(), ConversationType.CLIENT_TO_PROVIDER)
-				.orElseGet(() -> createProviderConversation(user, providerProfile));
+						current.getId(), providerProfile.getId(), ConversationType.CLIENT_TO_PROVIDER)
+				.orElseGet(() -> createProviderConversation(current, providerProfile, inquiry));
 
-		if (request.initialMessage() != null && !request.initialMessage().isBlank()) {
-			appendMessage(conversation, user, request.initialMessage().trim());
+		if (inquiry != null && (conversation.getSubject() == null || conversation.getSubject().isBlank())) {
+			conversation.setSubject(inquiry);
+			conversation = conversationRepository.save(conversation);
 		}
 
-		return toConversationResponse(conversation, user);
+		if (request.initialMessage() != null && !request.initialMessage().isBlank()) {
+			appendMessage(conversation, current, request.initialMessage().trim());
+		}
+
+		return toConversationResponse(conversation, current);
 	}
 
 	/**
@@ -90,8 +94,8 @@ public class SupportChatService {
 	public ConversationResponse iniciarConversacionConCliente(
 			AppUser providerUser,
 			StartClientConversationRequest request) {
-		validateAuthenticated(providerUser);
-		if (providerUser.getRole() != Role.PROVIDER) {
+		AppUser current = conversationService.requireAuthenticatedUser(providerUser);
+		if (current.getRole() != Role.PROVIDER) {
 			throw new IllegalArgumentException("Solo los proveedores pueden iniciar conversaciones con clientes.");
 		}
 
@@ -104,12 +108,12 @@ public class SupportChatService {
 		ProviderProfile providerProfile;
 		if (request.providerProfileId() != null) {
 			providerProfile = providerProfileRepository
-					.findByIdAndUserId(request.providerProfileId(), providerUser.getId())
+					.findByIdAndUserId(request.providerProfileId(), current.getId())
 					.orElseThrow(() -> new IllegalArgumentException(
 							"El negocio no existe o no pertenece al proveedor autenticado."));
 		} else {
 			providerProfile = providerProfileRepository
-					.findFirstByUserIdOrderByIdAsc(providerUser.getId())
+					.findFirstByUserIdOrderByIdAsc(current.getId())
 					.orElseThrow(() -> new IllegalArgumentException(
 							"El proveedor no tiene un perfil de negocio registrado."));
 		}
@@ -117,88 +121,107 @@ public class SupportChatService {
 		Conversation conversation = conversationRepository
 				.findByUserIdAndProviderIdAndConversationType(
 						client.getId(), providerProfile.getId(), ConversationType.CLIENT_TO_PROVIDER)
-				.orElseGet(() -> createProviderConversation(client, providerProfile));
+				.orElseGet(() -> createProviderConversation(client, providerProfile, null));
 
 		if (request.initialMessage() != null && !request.initialMessage().isBlank()) {
-			appendMessage(conversation, providerUser, request.initialMessage().trim());
+			appendMessage(conversation, current, request.initialMessage().trim());
 		}
 
-		return toConversationResponse(conversation, providerUser);
+		return toConversationResponse(conversation, current);
 	}
 
 	@Transactional(readOnly = true)
 	public List<MessageResponse> obtenerMensajes(AppUser user, Long conversationId) {
-		validateAuthenticated(user);
-		Conversation conversation = getConversationForUser(user, conversationId);
+		AppUser current = conversationService.requireAuthenticatedUser(user);
+		Conversation conversation = getConversationForUser(current, conversationId);
 		return messageRepository.findByConversationIdOrderBySentAtAsc(conversation.getId())
 				.stream()
-				.map(message -> MessageResponse.from(message, user.getId()))
+				.map(message -> MessageResponse.from(message, current.getId()))
 				.toList();
 	}
 
 	@Transactional
 	public MessageResponse enviarMensaje(AppUser user, Long conversationId, SendMessageRequest request) {
-		validateAuthenticated(user);
-		Conversation conversation = getConversationForUser(user, conversationId);
-		Message message = appendMessage(conversation, user, request.content().trim());
-		return MessageResponse.from(message, user.getId());
+		AppUser current = conversationService.requireAuthenticatedUser(user);
+		Conversation conversation = getConversationForUser(current, conversationId);
+		Message message = appendMessage(conversation, current, request.content().trim());
+		return MessageResponse.from(message, current.getId());
 	}
 
 	@Transactional
 	public void marcarComoLeido(AppUser user, Long conversationId) {
-		validateAuthenticated(user);
-		Conversation conversation = getConversationForUser(user, conversationId);
-		messageRepository.markAsReadForConversation(conversation.getId(), user.getId());
+		AppUser current = conversationService.requireAuthenticatedUser(user);
+		Conversation conversation = getConversationForUser(current, conversationId);
+		messageRepository.markAsReadForConversation(conversation.getId(), current.getId());
 	}
 
 	@Transactional
 	public SupportTicketResponse crearTicketSoporte(AppUser user, CreateSupportTicketRequest request) {
-		validateAuthenticated(user);
-		if (user.getRole() != Role.USER && user.getRole() != Role.PROVIDER) {
+		AppUser current = conversationService.requireAuthenticatedUser(user);
+		if (current.getRole() != Role.USER && current.getRole() != Role.PROVIDER) {
 			throw new IllegalArgumentException("Solo turistas y proveedores pueden crear tickets de soporte.");
 		}
 
-		ConversationType type = user.getRole() == Role.PROVIDER
+		ConversationType type = current.getRole() == Role.PROVIDER
 				? ConversationType.PROVIDER_TO_SUPPORT
 				: ConversationType.CLIENT_TO_SUPPORT;
 
 		Conversation conversation = new Conversation();
-		conversation.setUser(user);
+		conversation.setUser(current);
 		conversation.setProvider(null);
 		conversation.setConversationType(type);
+		// El esquema no tiene SUPPORT/PENDING: cola inicial = UNASSIGNED, urgencia por defecto MEDIUM.
 		conversation.setSupportStatus(SupportStatus.UNASSIGNED);
 		conversation.setAssignedAdvisor(null);
-		conversation.setUrgency(request.urgency() != null ? request.urgency() : SupportUrgency.MEDIUM);
-		conversation.setSubject(request.serviceName() != null && !request.serviceName().isBlank()
-				? request.serviceName().trim()
-				: "Soporte general");
-		conversation = conversationRepository.save(conversation);
+		conversation.setUrgency(SupportUrgency.MEDIUM);
+		conversation.setSubject(request.subject().trim());
+		// Flush para que Hibernate envuelva messages antes de añadir hijos.
+		conversation = conversationRepository.saveAndFlush(conversation);
 
-		appendMessage(conversation, user, request.message().trim());
-		loadMessagesForTicket(conversation);
+		Message initialMessage = new Message();
+		initialMessage.setSender(current);
+		initialMessage.setContent(request.initialMessage().trim());
+		initialMessage.setSentAt(Instant.now());
+		conversation.addMessage(initialMessage);
+		conversation.setLastMessageAt(initialMessage.getSentAt());
+		messageRepository.save(initialMessage);
+
 		return SupportTicketResponse.from(conversation);
 	}
 
 	/**
 	 * Abre una conversación de soporte humano persistente en cola ({@link SupportStatus#UNASSIGNED}).
+	 * Acepta asunto y mensaje inicial del turista o proveedor.
 	 */
 	@Transactional
-	public SupportTicketResponse abrirConversacionSoporte(AppUser user) {
-		validateAuthenticated(user);
-		if (user.getRole() != Role.USER && user.getRole() != Role.PROVIDER) {
+	public SupportTicketResponse abrirConversacionSoporte(AppUser user, CreateSupportTicketRequest request) {
+		AppUser current = conversationService.requireAuthenticatedUser(user);
+		if (current.getRole() != Role.USER && current.getRole() != Role.PROVIDER) {
 			throw new IllegalArgumentException(
 					"Solo turistas y proveedores pueden abrir conversaciones de soporte.");
 		}
 
+		ConversationType type = current.getRole() == Role.PROVIDER
+				? ConversationType.PROVIDER_TO_SUPPORT
+				: ConversationType.CLIENT_TO_SUPPORT;
+
 		Conversation conversation = new Conversation();
-		conversation.setUser(user);
+		conversation.setUser(current);
 		conversation.setProvider(null);
-		conversation.setConversationType(ConversationType.HUMAN_SUPPORT);
+		conversation.setConversationType(type);
 		conversation.setSupportStatus(SupportStatus.UNASSIGNED);
 		conversation.setAssignedAdvisor(null);
 		conversation.setUrgency(SupportUrgency.MEDIUM);
-		conversation.setSubject("Soporte humano");
-		conversation = conversationRepository.save(conversation);
+		conversation.setSubject(request.subject().trim());
+		conversation = conversationRepository.saveAndFlush(conversation);
+
+		Message initialMessage = new Message();
+		initialMessage.setSender(current);
+		initialMessage.setContent(request.initialMessage().trim());
+		initialMessage.setSentAt(Instant.now());
+		conversation.addMessage(initialMessage);
+		conversation.setLastMessageAt(initialMessage.getSentAt());
+		messageRepository.save(initialMessage);
 
 		loadMessagesForTicket(conversation);
 		return SupportTicketResponse.from(conversation);
@@ -209,13 +232,12 @@ public class SupportChatService {
 	 */
 	@Transactional
 	public SupportTicketResponse asignarConversacionSoporte(AppUser advisor, Long conversationId) {
-		validateAdmin(advisor);
-		Conversation conversation = conversationRepository.findById(conversationId)
-				.orElseThrow(() -> new IllegalArgumentException("La conversación de soporte no existe."));
+		AppUser current = requireStaff(advisor);
+		Conversation conversation = conversationService.requireReadable(current, conversationId);
 		if (!conversation.getConversationType().isHumanSupport()) {
 			throw new IllegalArgumentException("La conversación indicada no es de soporte humano.");
 		}
-		if (conversation.isBotSession()) {
+		if (ConversationService.isCatalogInquiry(conversation)) {
 			throw new IllegalArgumentException("No se puede asignar una sesión del asistente virtual.");
 		}
 		if (conversation.getSupportStatus() == SupportStatus.RESOLVED
@@ -223,12 +245,12 @@ public class SupportChatService {
 			throw new IllegalArgumentException("No se puede asignar un ticket resuelto o cerrado.");
 		}
 		if (conversation.getAssignedAdvisor() != null
-				&& !conversation.getAssignedAdvisor().getId().equals(advisor.getId())) {
+				&& !conversation.getAssignedAdvisor().getId().equals(current.getId())) {
 			throw new IllegalArgumentException(
 					"La conversación ya está asignada a otro asesor.");
 		}
 
-		conversation.setAssignedAdvisor(advisor);
+		conversation.setAssignedAdvisor(current);
 		conversation.setSupportStatus(SupportStatus.IN_PROGRESS);
 		conversation = conversationRepository.save(conversation);
 		loadMessagesForTicket(conversation);
@@ -240,14 +262,8 @@ public class SupportChatService {
 	 */
 	@Transactional(readOnly = true)
 	public List<SupportTicketResponse> listarInboxSoporte(AppUser advisor) {
-		validateAdmin(advisor);
-		List<ConversationType> supportTypes = List.of(
-				ConversationType.HUMAN_SUPPORT,
-				ConversationType.CLIENT_TO_SUPPORT,
-				ConversationType.PROVIDER_TO_SUPPORT);
-		List<SupportStatus> excluded = List.of(SupportStatus.RESOLVED, SupportStatus.CLOSED);
-		return conversationRepository
-				.findSupportInboxForAdvisor(supportTypes, advisor.getId(), excluded)
+		AppUser current = requireStaff(advisor);
+		return conversationService.listStaffSupportTickets(current)
 				.stream()
 				.map(conversation -> {
 					loadMessagesForTicket(conversation);
@@ -258,14 +274,9 @@ public class SupportChatService {
 
 	@Transactional(readOnly = true)
 	public List<SupportTicketResponse> listarTicketsSoporte(AppUser admin) {
-		validateAdmin(admin);
-		List<ConversationType> supportTypes = List.of(
-				ConversationType.HUMAN_SUPPORT,
-				ConversationType.CLIENT_TO_SUPPORT,
-				ConversationType.PROVIDER_TO_SUPPORT);
-		return conversationRepository.findByConversationTypeInOrderByLastMessageAtDesc(supportTypes)
+		AppUser current = requireStaff(admin);
+		return conversationService.listStaffSupportTickets(current)
 				.stream()
-				.filter(conversation -> !conversation.isBotSession())
 				.map(conversation -> {
 					loadMessagesForTicket(conversation);
 					return SupportTicketResponse.from(conversation);
@@ -278,15 +289,24 @@ public class SupportChatService {
 			AppUser admin,
 			Long conversationId,
 			UpdateSupportStatusRequest request) {
-		validateAdmin(admin);
-		Conversation conversation = conversationRepository.findById(conversationId)
-				.orElseThrow(() -> new IllegalArgumentException("El ticket de soporte no existe."));
+		AppUser current = requireStaff(admin);
+		Conversation conversation = conversationService.requireReadable(current, conversationId);
 		if (!conversation.getConversationType().isHumanSupport()) {
 			throw new IllegalArgumentException("La conversación indicada no es un ticket de soporte.");
 		}
-		conversation.setSupportStatus(request.status());
-		if (request.status() == SupportStatus.UNASSIGNED) {
-			conversation.setAssignedAdvisor(null);
+		if (request.status() == null && request.urgency() == null) {
+			throw new IllegalArgumentException("Debe indicar el estado o la urgencia a actualizar.");
+		}
+		if (request.status() != null) {
+			conversation.setSupportStatus(request.status());
+			if (request.status() == SupportStatus.UNASSIGNED) {
+				conversation.setAssignedAdvisor(null);
+			} else if (conversation.getAssignedAdvisor() == null) {
+				conversation.setAssignedAdvisor(current);
+			}
+		}
+		if (request.urgency() != null) {
+			conversation.setUrgency(request.urgency());
 		}
 		conversation = conversationRepository.save(conversation);
 		loadMessagesForTicket(conversation);
@@ -295,9 +315,8 @@ public class SupportChatService {
 
 	@Transactional
 	public MessageResponse responderTicketSoporte(AppUser admin, Long conversationId, SendMessageRequest request) {
-		validateAdmin(admin);
-		Conversation conversation = conversationRepository.findById(conversationId)
-				.orElseThrow(() -> new IllegalArgumentException("El ticket de soporte no existe."));
+		AppUser current = requireStaff(admin);
+		Conversation conversation = conversationService.requireReadable(current, conversationId);
 		if (!conversation.getConversationType().isHumanSupport()) {
 			throw new IllegalArgumentException("La conversación indicada no es un ticket de soporte.");
 		}
@@ -305,89 +324,54 @@ public class SupportChatService {
 			throw new IllegalArgumentException("El ticket de soporte está cerrado.");
 		}
 		if (conversation.getAssignedAdvisor() == null) {
-			conversation.setAssignedAdvisor(admin);
+			conversation.setAssignedAdvisor(current);
 		}
 		if (conversation.getSupportStatus() == SupportStatus.OPEN
 				|| conversation.getSupportStatus() == SupportStatus.UNASSIGNED
 				|| conversation.getSupportStatus() == SupportStatus.NEEDS_HUMAN_SUPPORT) {
 			conversation.setSupportStatus(SupportStatus.IN_PROGRESS);
 		}
-		Message message = appendMessage(conversation, admin, request.content().trim());
-		return MessageResponse.from(message, admin.getId());
+		Message message = appendMessage(conversation, current, request.content().trim());
+		return MessageResponse.from(message, current.getId());
 	}
 
-	private List<Conversation> findConversationsForUser(AppUser user) {
-		Map<Long, Conversation> unique = new LinkedHashMap<>();
-		if (isAdminOrSupport(user)) {
-			// Tickets de soporte humanos (nunca chats del bot automatizado).
-			conversationRepository.findByConversationTypeInOrderByLastMessageAtDesc(
-					List.of(
-							ConversationType.HUMAN_SUPPORT,
-							ConversationType.CLIENT_TO_SUPPORT,
-							ConversationType.PROVIDER_TO_SUPPORT))
-					.forEach(conversation -> unique.put(conversation.getId(), conversation));
-			// Chats cliente↔negocio para supervisión (ambos participantes visibles en DTO).
-			conversationRepository.findHumanByConversationTypeOrderByLastMessageAtDesc(
-					ConversationType.CLIENT_TO_PROVIDER)
-					.forEach(conversation -> unique.put(conversation.getId(), conversation));
-		}
-		if (user.getRole() == Role.USER) {
-			conversationRepository.findByUserIdOrderByLastMessageAtDesc(user.getId())
-					.forEach(conversation -> unique.put(conversation.getId(), conversation));
-		}
-		if (user.getRole() == Role.PROVIDER) {
-			// Inbox del proveedor: conversaciones de sus ProviderProfile → muestra al cliente.
-			conversationRepository.findByProvider_User_IdOrderByLastMessageAtDesc(user.getId())
-					.forEach(conversation -> unique.put(conversation.getId(), conversation));
-			// Tickets de soporte abiertos por el propio proveedor.
-			conversationRepository.findByUserIdOrderByLastMessageAtDesc(user.getId())
-					.forEach(conversation -> unique.put(conversation.getId(), conversation));
-		}
-		return unique.values().stream()
-				.filter(c -> !c.isBotSession())
-				.sorted(Comparator.comparing(Conversation::getLastMessageAt).reversed())
-				.toList();
-	}
-
-	private Conversation createProviderConversation(AppUser user, ProviderProfile providerProfile) {
+	private Conversation createProviderConversation(
+			AppUser user, ProviderProfile providerProfile, String inquirySubject) {
 		Conversation conversation = new Conversation();
 		conversation.setUser(user);
 		conversation.setProvider(providerProfile);
 		conversation.setConversationType(ConversationType.CLIENT_TO_PROVIDER);
+		if (inquirySubject != null && !inquirySubject.isBlank()) {
+			conversation.setSubject(inquirySubject.trim());
+		}
 		return conversationRepository.save(conversation);
+	}
+
+	private String normalizeInquiry(String serviceName) {
+		if (serviceName == null || serviceName.isBlank()) {
+			return null;
+		}
+		String trimmed = serviceName.trim();
+		return trimmed.length() > 200 ? trimmed.substring(0, 200) : trimmed;
 	}
 
 	private Message appendMessage(Conversation conversation, AppUser sender, String content) {
 		Message message = new Message();
-		message.setConversation(conversation);
 		message.setSender(sender);
 		message.setContent(content);
 		message.setSentAt(Instant.now());
-		message = messageRepository.save(message);
+		if (conversation.getId() == null) {
+			conversationRepository.saveAndFlush(conversation);
+		}
+		conversation.addMessage(message);
 		conversation.setLastMessageAt(message.getSentAt());
-		conversationRepository.save(conversation);
-		return message;
+		// No hacer save() de la conversación ya administrada: Spring Data llama a
+		// merge() y Hibernate puede soltar la colección con orphanRemoval.
+		return messageRepository.save(message);
 	}
 
 	private Conversation getConversationForUser(AppUser user, Long conversationId) {
-		Conversation conversation = conversationRepository.findById(conversationId)
-				.orElseThrow(() -> new IllegalArgumentException("La conversación no existe."));
-		if (!isParticipant(user, conversation)) {
-			throw new IllegalArgumentException("No tienes acceso a esta conversación.");
-		}
-		return conversation;
-	}
-
-	private boolean isParticipant(AppUser user, Conversation conversation) {
-		if (isAdminOrSupport(user)) {
-			return true;
-		}
-		if (conversation.getUser().getId().equals(user.getId())) {
-			return true;
-		}
-		return conversation.getProvider() != null
-				&& conversation.getProvider().getUser() != null
-				&& conversation.getProvider().getUser().getId().equals(user.getId());
+		return conversationService.requireReadable(user, conversationId);
 	}
 
 	private ConversationResponse toConversationResponse(Conversation conversation, Long currentUserId) {
@@ -411,24 +395,15 @@ public class SupportChatService {
 
 	private void loadMessagesForTicket(Conversation conversation) {
 		List<Message> messages = messageRepository.findByConversationIdOrderBySentAtAsc(conversation.getId());
-		conversation.setMessages(new ArrayList<>(messages));
+		conversation.syncMessages(messages);
 	}
 
-	private void validateAuthenticated(AppUser user) {
-		if (user == null) {
-			throw new IllegalArgumentException("Usuario no autenticado.");
-		}
-	}
-
-	private boolean isAdminOrSupport(AppUser user) {
-		return user.getRole() == Role.ADMIN || user.getRole() == Role.SUPPORT;
-	}
-
-	private void validateAdmin(AppUser user) {
-		validateAuthenticated(user);
-		if (!isAdminOrSupport(user)) {
+	private AppUser requireStaff(AppUser claimed) {
+		AppUser current = conversationService.requireAuthenticatedUser(claimed);
+		if (current.getRole() != Role.ADMIN && current.getRole() != Role.SUPPORT) {
 			throw new IllegalArgumentException(
 					"Solo administradores o soporte pueden realizar esta acción.");
 		}
+		return current;
 	}
 }

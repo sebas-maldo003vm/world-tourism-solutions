@@ -15,6 +15,7 @@ Thumbs.db
 # =========================
 
 Back_WTS/target/
+/Back_WTS/env
 Back_WTS/*.db
 Back_WTS/*.db-shm
 Back_WTS/*.db-wal

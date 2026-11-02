@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Camera, Lock, User } from 'lucide-react';
+import { Camera, Lock } from 'lucide-react';
 
 import { API_ORIGIN } from '@/core/api/client';
+import { useAuth } from '@/features/auth/context/AuthContext';
+import { UserAvatar } from '@/shared/components/UserAvatar';
 import { Card, CardContent } from '@/shared/components/ui/card';
 import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/ui/input';
 import { Label } from '@/shared/components/ui/label';
 import {
   profileService,
-  type UserProfile,
 } from '@/features/profile/services/profileService';
 
 function resolvePictureUrl(url?: string | null) {
@@ -23,25 +24,9 @@ function resolvePictureUrl(url?: string | null) {
   return `${API_ORIGIN}${url}`;
 }
 
-function syncLocalUser(profile: UserProfile) {
-  const stored = localStorage.getItem('user');
-  const previous = stored ? JSON.parse(stored) : {};
-  localStorage.setItem(
-    'user',
-    JSON.stringify({
-      ...previous,
-      id: profile.id,
-      name: profile.name,
-      email: profile.email,
-      phoneNumber: profile.phoneNumber,
-      role: profile.role,
-      profilePictureUrl: profile.profilePictureUrl ?? null,
-    }),
-  );
-}
-
 export function EditProfile() {
   const navigate = useNavigate();
+  const { setUser } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(true);
@@ -49,6 +34,8 @@ export function EditProfile() {
   const [uploading, setUploading] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
   const [profilePictureUrl, setProfilePictureUrl] = useState<string | null>(null);
+  const [pendingPicture, setPendingPicture] = useState<File | null>(null);
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -76,7 +63,14 @@ export function EditProfile() {
           phoneNumber: data.phoneNumber ?? '',
         });
         setProfilePictureUrl(data.profilePictureUrl ?? null);
-        syncLocalUser(data);
+        setUser((current) => ({
+          id: data.id,
+          name: data.name,
+          email: data.email,
+          phoneNumber: data.phoneNumber,
+          role: data.role === 'BOT' ? (current?.role ?? 'USER') : data.role,
+          profilePictureUrl: data.profilePictureUrl ?? current?.profilePictureUrl ?? null,
+        }));
       } catch {
         if (!cancelled) {
           toast.error('No se pudo cargar el perfil.');
@@ -93,7 +87,15 @@ export function EditProfile() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [setUser]);
+
+  useEffect(() => {
+    return () => {
+      if (localPreviewUrl) {
+        URL.revokeObjectURL(localPreviewUrl);
+      }
+    };
+  }, [localPreviewUrl]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({
@@ -109,36 +111,30 @@ export function EditProfile() {
     });
   };
 
-  const handlePictureSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePictureSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
+
     if (!file) {
       return;
     }
 
-    setUploading(true);
-    try {
-      const { data } = await profileService.uploadProfilePicture(file);
-      setProfilePictureUrl(data.profilePictureUrl);
-
-      const stored = localStorage.getItem('user');
-      const previous = stored ? JSON.parse(stored) : {};
-      localStorage.setItem(
-        'user',
-        JSON.stringify({
-          ...previous,
-          profilePictureUrl: data.profilePictureUrl,
-        }),
-      );
-
-      toast.success('Foto de perfil actualizada.');
-    } catch {
-      toast.error('No se pudo subir la foto de perfil.');
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      toast.error('Solo se permiten imagenes JPG, PNG o WEBP.');
+      return;
     }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('La imagen no puede superar 5 MB.');
+      return;
+    }
+
+    if (localPreviewUrl) {
+      URL.revokeObjectURL(localPreviewUrl);
+    }
+
+    setPendingPicture(file);
+    setLocalPreviewUrl(URL.createObjectURL(file));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -146,6 +142,24 @@ export function EditProfile() {
     setSaving(true);
 
     try {
+      let uploadedPictureUrl: string | null = null;
+
+      if (pendingPicture) {
+        setUploading(true);
+        const { data: picture } = await profileService.uploadProfilePicture(pendingPicture);
+        uploadedPictureUrl = picture.profilePictureUrl;
+        setProfilePictureUrl(uploadedPictureUrl);
+        setPendingPicture(null);
+        setUser((current) => ({
+          id: current?.id ?? 0,
+          name: current?.name || form.name,
+          email: current?.email || form.email,
+          phoneNumber: current?.phoneNumber,
+          role: current?.role ?? 'USER',
+          profilePictureUrl: uploadedPictureUrl,
+        }));
+      }
+
       const { data } = await profileService.updateProfile({
         name: form.name.trim(),
         phoneNumber: form.phoneNumber.trim(),
@@ -156,14 +170,27 @@ export function EditProfile() {
         email: data.email ?? '',
         phoneNumber: data.phoneNumber ?? '',
       });
-      setProfilePictureUrl(data.profilePictureUrl ?? profilePictureUrl);
-      syncLocalUser(data);
+      const nextPictureUrl = data.profilePictureUrl ?? uploadedPictureUrl ?? profilePictureUrl;
+      setProfilePictureUrl(nextPictureUrl);
+      setUser((current) => ({
+        id: data.id,
+        name: data.name,
+        email: data.email,
+        phoneNumber: data.phoneNumber,
+        role: data.role === 'BOT' ? (current?.role ?? 'USER') : data.role,
+        profilePictureUrl: nextPictureUrl ?? current?.profilePictureUrl ?? null,
+      }));
 
       toast.success('Perfil actualizado correctamente.');
       navigate('/profile');
-    } catch {
-      toast.error('No se pudo actualizar el perfil.');
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.message ||
+          error?.message ||
+          'No se pudo actualizar el perfil.',
+      );
     } finally {
+      setUploading(false);
       setSaving(false);
     }
   };
@@ -204,7 +231,7 @@ export function EditProfile() {
     }
   };
 
-  const previewUrl = resolvePictureUrl(profilePictureUrl);
+  const previewUrl = localPreviewUrl ?? resolvePictureUrl(profilePictureUrl);
 
   if (loading) {
     return (
@@ -231,17 +258,12 @@ export function EditProfile() {
 
             <div className="flex items-center gap-4 mb-6">
               <div className="relative">
-                <div className="w-20 h-20 rounded-full overflow-hidden bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
-                  {previewUrl ? (
-                    <img
-                      src={previewUrl}
-                      alt="Foto de perfil"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <User className="h-8 w-8 text-white" />
-                  )}
-                </div>
+                <UserAvatar
+                  src={previewUrl}
+                  name={form.name}
+                  size="lg"
+                  className="h-20 w-20 text-2xl"
+                />
                 <button
                   type="button"
                   disabled={uploading}
@@ -265,7 +287,9 @@ export function EditProfile() {
                 <p className="text-gray-600 text-sm">
                   {uploading
                     ? 'Subiendo foto...'
-                    : 'Actualiza tu información personal'}
+                    : pendingPicture
+                      ? 'Vista previa lista. La foto se sube al guardar.'
+                      : 'Actualiza tu información personal'}
                 </p>
               </div>
             </div>

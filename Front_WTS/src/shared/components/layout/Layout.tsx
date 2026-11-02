@@ -1,5 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { Header } from '@/shared/components/layout/Header';
+import { AuthProvider } from '@/features/auth/context/AuthContext';
 import { FavoritesProvider } from '@/features/catalog/hooks/useFavorites';
 import { ChatWidget } from '@/features/chat/components/ChatWidget';
 
@@ -9,7 +10,9 @@ export function Layout() {
 
   const hiddenRoutes = [
     '/login',
-    '/register'
+    '/register',
+    '/forgot-password',
+    '/update-password',
   ];
 
   const hideHeader = hiddenRoutes.includes(location.pathname);
@@ -18,16 +21,18 @@ export function Layout() {
   const hideChatWidget = hideHeader || location.pathname.startsWith('/admin');
 
   return (
-    <FavoritesProvider>
-      <div className="min-h-screen overflow-x-hidden bg-gray-50">
+    <AuthProvider>
+      <FavoritesProvider>
+        <div className="min-h-screen overflow-x-hidden bg-gray-50">
 
-        {!hideHeader && <Header />}
+          {!hideHeader && <Header />}
 
-        <Outlet />
+          <Outlet />
 
-        {!hideChatWidget && <ChatWidget />}
+          {!hideChatWidget && <ChatWidget />}
 
-      </div>
-    </FavoritesProvider>
+        </div>
+      </FavoritesProvider>
+    </AuthProvider>
   );
 }

@@ -1,6 +1,7 @@
 package com.worldturism.spring.app.infrastructure.security;
 
 import com.worldturism.spring.app.infrastructure.persistence.repository.UserRepository;
+import jakarta.servlet.DispatcherType;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -55,33 +56,50 @@ public class SecurityConfig {
 						}))
 				.authorizeHttpRequests(auth -> auth
 						.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+						// El dispatcher ERROR no debe exigir JWT: si no, un fallo de
+						// registro/login se enmascara como 401 "Se requiere JWT".
+						.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+						.requestMatchers("/error").permitAll()
+						.requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
+						.requestMatchers(HttpMethod.PUT, "/api/auth/reset-password").permitAll()
 						.requestMatchers("/api/auth/register", "/api/auth/login").permitAll()
 						.requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
 						.requestMatchers("/uploads/**").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/businesses/**", "/api/businesses").permitAll()
+						// Analítica: contadores diarios (anónimos permitidos; validación en servicio)
+						.requestMatchers(HttpMethod.POST, "/api/analytics/events", "/api/analytics/events/batch")
+								.permitAll()
 						// Asistente virtual: requiere JWT de turista (USER) o proveedor (PROVIDER)
 						.requestMatchers(HttpMethod.POST, "/api/chat/message").hasAnyRole("USER", "PROVIDER")
-						// Soporte humano: apertura por clientes; inbox/asignación solo staff
+						// Soporte humano: apertura por clientes; inbox/asignación/estado solo staff
 						.requestMatchers(HttpMethod.POST, "/api/support/conversations/open")
 								.hasAnyRole("USER", "PROVIDER")
 						.requestMatchers(HttpMethod.PUT, "/api/support/conversations/*/assign")
 								.hasAnyRole("ADMIN", "SUPPORT")
 						.requestMatchers(HttpMethod.GET, "/api/support/conversations/inbox")
 								.hasAnyRole("ADMIN", "SUPPORT")
+						.requestMatchers(HttpMethod.PATCH, "/api/support/conversations/*/status")
+								.hasAnyRole("ADMIN", "SUPPORT")
+						.requestMatchers(HttpMethod.POST, "/api/support/conversations/*/messages")
+								.hasAnyRole("ADMIN", "SUPPORT")
 						.requestMatchers("/api/support/**").hasAnyRole("ADMIN", "SUPPORT", "USER", "PROVIDER")
+						// Legacy /api/chat/support: solo mesa de ayuda
+						.requestMatchers(HttpMethod.PATCH, "/api/chat/support/**").hasAnyRole("ADMIN", "SUPPORT")
 						// Eliminación física y operaciones críticas — solo ADMIN
 						.requestMatchers(HttpMethod.DELETE, "/api/admin/**").hasRole("ADMIN")
 						// Visualización global del panel — ADMIN y SUPPORT
 						.requestMatchers(HttpMethod.GET, "/api/admin/**").hasAnyRole("ADMIN", "SUPPORT")
 						// Cambios de estado de negocios — ADMIN y SUPPORT
 						.requestMatchers(HttpMethod.PATCH, "/api/admin/businesses/*/status").hasAnyRole("ADMIN", "SUPPORT")
-						// Actualización de usuario (cambio de rol bloqueado en servicio para SUPPORT)
+						// SUPPORT solo puede editar USER/PROVIDER; AdminUserService bloquea cuentas privilegiadas.
 						.requestMatchers(HttpMethod.PUT, "/api/admin/users/**").hasAnyRole("ADMIN", "SUPPORT")
 						// Resto de rutas admin — solo ADMIN
 						.requestMatchers("/api/admin/**").hasRole("ADMIN")
 						.requestMatchers("/api/provider/**").hasAnyRole("PROVIDER", "ADMIN")
 						// Favoritos: solo turista autenticado; aislamiento por userId en FavoriteService
 						.requestMatchers("/api/favorites", "/api/favorites/**").hasRole("USER")
+						// Propuestas de un día: solo turista. No crean reservas ni pagos.
+						.requestMatchers("/api/itineraries/**").hasRole("USER")
 						.anyRequest().authenticated())
 				.authenticationProvider(authenticationProvider)
 				.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

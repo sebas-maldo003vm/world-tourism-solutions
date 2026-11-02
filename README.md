@@ -1,59 +1,68 @@
 # World Tourism Solutions
 
-Plataforma de gestión de servicios turísticos, publicaciones comerciales, reservas, mensajería en tiempo real e itinerarios personalizados.
+Plataforma de gestión de servicios turísticos, publicaciones comerciales, reservas, mensajería e itinerarios derivados de reservas.
 
 ---
 
 ## Tabla de contenidos
 
-1. [Descripción General](#-1-descripción-general)
-2. [Arquitectura y Tecnologías](#️-2-arquitectura-y-tecnologías)
-3. [Modelo y Estructura de la Base de Datos](#️-3-modelo-y-estructura-de-la-base-de-datos)
-4. [Funcionalidades Principales](#-4-funcionalidades-principales)
-5. [Guía de Instalación y Ejecución Local](#️-5-guía-de-instalación-y-ejecución-local)
-6. [Roadmap y Tareas Pendientes](#-6-roadmap-y-tareas-pendientes-todos)
+1. [Descripción general](#1-descripción-general)
+2. [Arquitectura y tecnologías](#2-arquitectura-y-tecnologías)
+3. [Estructura del proyecto](#3-estructura-del-proyecto)
+4. [Modelo de base de datos](#4-modelo-de-base-de-datos)
+5. [API REST (endpoints)](#5-api-rest-endpoints)
+6. [Funcionalidades principales](#6-funcionalidades-principales)
+7. [Instalación y configuración](#7-instalación-y-configuración)
+8. [Ejecución](#8-ejecución)
+9. [Roadmap](#9-roadmap)
+10. [Integrantes y licencia](#10-integrantes-y-licencia)
 
 ---
 
-## 📌 1. Descripción General
+## 1. Descripción general
 
-**World Tourism Solutions (WTS)** es una plataforma cliente-servidor orientada a centralizar la oferta turística —hospedajes, actividades, restaurantes y servicios complementarios— en un único ecosistema digital.
-
-El proyecto resuelve la fragmentación típica del sector (información dispersa en redes sociales, WhatsApp y sitios aislados) y permite que **turistas** y **proveedores** operen en el mismo espacio:
+**World Tourism Solutions (WTS)** es una aplicación cliente-servidor que centraliza la oferta turística (hospedajes, actividades, restaurantes y servicios complementarios) en un solo ecosistema.
 
 | Capacidad | Descripción |
 |-----------|-------------|
-| Catálogo comercial | Publicación y descubrimiento de perfiles/servicios de proveedores |
+| Catálogo comercial | Publicación y descubrimiento de perfiles/servicios de proveedores. Proximidad en servidor (`GET /api/businesses?lat=&lng=&radiusKm=`) |
 | Reservas | Solicitud, cotización y seguimiento del estado de reservas |
-| Mensajería | Chat cliente ↔ proveedor, cola de soporte humano con asignación a asesores, y asistente virtual (FAQ + escalamiento) |
-| Itinerarios | Planificación personalizada de viajes con ítems vinculados a ofertas reales |
-| Valoraciones | Sistema de reseñas y ratings asociados a cada perfil comercial |
+| Mensajería | Chat cliente ↔ proveedor, cola de soporte humano y asistente virtual |
+| Itinerario | Reservas `PENDING`, `APPROVED` y `COMPLETED` agrupadas por ciudad, con calendario y filtro por día (`GET /api/bookings/itinerary?date=`) |
+| Valoraciones | Reseñas y ratings asociados a cada perfil comercial |
+| Analítica (proveedor) | Contadores diarios en `provider_daily_analytics` y reporte embebido de Looker Studio filtrado por proveedor |
+| Recuperación de acceso | Pantalla `/update-password` que sincroniza la clave de Supabase Auth con `users.password` |
 
 > **Contexto académico:** proyecto de grado orientado a evidenciar análisis, diseño y construcción de software (UML, requerimientos y arquitectura cliente-servidor).
 
 ---
 
-## 🏗️ 2. Arquitectura y Tecnologías
-
-La solución se organiza como **monorepo** con separación clara entre API y cliente web.
+## 2. Arquitectura y tecnologías
 
 ```
-Frontend (React + Vite)  →  API REST (Spring Boot)  →  SQLite
-     Puerto 5173                    Puerto 8080         worldturism.db
+Frontend (React + Vite)  →  API REST (Spring Boot)  →  PostgreSQL + PostGIS (Supabase)
+     Puerto 5173                    Puerto 8080         ddl-auto=validate
 ```
+
+Las imágenes de perfil y galería se suben desde el frontend a **Supabase Storage**. El backend también puede servir archivos locales bajo `uploads/`.
+
+El alta la hace el backend: persiste `public.users` con hash BCrypt y crea el usuario confirmado en Supabase Auth (`POST /auth/v1/admin/users`, service role). El UUID devuelto queda en `users.auth_user_id`. Si Auth falla, la transacción local se revierte; si el commit falla, el backend borra el usuario huérfano con `DELETE /auth/v1/admin/users/{uuid}`.
+
+La recuperación de contraseña sigue en el cliente con Supabase Auth. El backend verifica el access token (`GET /auth/v1/user`, cabeceras `apikey` y `Authorization: Bearer`) y actualiza `users.password` del registro encontrado por `auth_user_id`.
 
 ### Backend — `Back_WTS`
 
-| Tecnología | Uso |
-|------------|-----|
-| **Java 17** | Lenguaje de la API |
-| **Spring Boot** | Framework de aplicación y servidor embebido |
-| **Spring Data JPA** | Persistencia y mapeo objeto-relacional |
-| **Spring Security + JWT** | Autenticación y autorización por roles |
-| **SQLite** | Base de datos embebida para desarrollo (`worldturism.db`) |
-| **springdoc-openapi** | Documentación interactiva (Swagger UI) |
+| Tecnología | Versión / detalle | Uso |
+|------------|-------------------|-----|
+| **Java** | 17 | Lenguaje de la API |
+| **Spring Boot** | 4.0.6 | Framework y servidor embebido |
+| **Spring Data JPA** | (BOM Spring Boot) | Persistencia |
+| **Spring Security + JJWT** | JJWT 0.12.6 | Autenticación JWT y roles |
+| **PostgreSQL + PostGIS** | vía Supabase | BD relacional + extensión geoespacial |
+| **springdoc-openapi** | 3.0.3 | Swagger UI |
+| **Maven Wrapper** | `mvnw` / `mvnw.cmd` | Build y ejecución sin Maven global |
 
-Arquitectura interna (Clean Architecture):
+Arquitectura interna (capas):
 
 ```
 Back_WTS/src/main/java/com/worldturism/spring/app/
@@ -61,9 +70,9 @@ Back_WTS/src/main/java/com/worldturism/spring/app/
 ├── application/service/          # Casos de uso
 ├── infrastructure/
 │   ├── persistence/repository/   # Repositorios Spring Data
-│   ├── security/                 # JWT + filtros de seguridad
-│   ├── config/                   # CORS, OpenAPI, migraciones SQLite
-│   └── storage/                  # Almacenamiento de imágenes
+│   ├── security/                 # JWT, filtros, CORS y cliente Supabase Auth
+│   ├── config/                   # OpenAPI, estáticos y backfill de coordenadas
+│   └── storage/                  # Almacenamiento local de imágenes
 ├── presentation/
 │   ├── controller/               # Controladores REST
 │   └── dto/                      # Contratos de entrada/salida
@@ -72,235 +81,318 @@ Back_WTS/src/main/java/com/worldturism/spring/app/
 
 ### Frontend — `Front_WTS`
 
-| Tecnología | Uso |
-|------------|-----|
-| **React 18** | UI declarativa |
-| **TypeScript** | Tipado estático |
-| **Vite 6** | Bundler y servidor de desarrollo |
-| **Tailwind CSS 4** | Estilos utilitarios |
-| **React Router** | Enrutamiento SPA |
-| **Axios** | Cliente HTTP hacia la API |
+| Tecnología | Versión | Uso |
+|------------|---------|-----|
+| **React** | 18.3.1 | UI |
+| **TypeScript** | ^5.8.3 | Tipado estático |
+| **Vite** | 6.3.5 | Bundler y servidor de desarrollo |
+| **Tailwind CSS** | 4.1.12 | Estilos utilitarios |
+| **React Router** | 7.13.0 | Enrutamiento SPA |
+| **Axios** | ^1.16.0 | Cliente HTTP hacia la API |
+| **Leaflet + react-leaflet** | 1.9.4 / 4.2.1 | Mapas del catálogo (OpenStreetMap) |
+| **@supabase/supabase-js** | ^2.116.0 | Storage y sesión de recuperación de Supabase Auth. El alta de Auth la hace el backend |
+| **date-fns / react-day-picker** | 3.6.0 / 8.10.1 | Calendario del itinerario |
+| **MUI / Radix UI** | varias | Componentes de interfaz |
+| **Recharts** | 2.15.2 | Primitiva de gráficos en `shared/components/ui/chart.tsx` |
+| **motion** | 12.23.24 | Animaciones de interfaz |
 
 Organización feature-first:
 
 ```
 Front_WTS/src/
 ├── app/          # App, rutas, ProtectedRoute
-├── core/         # Cliente API (Axios + JWT)
-├── shared/       # Componentes reutilizables
-├── features/     # auth, catalog, bookings, reviews, provider, profile, chat, admin
-│                 # chat: pages, ChatWidget, hooks (useEphemeralChatbot), utils (conversationDisplay)
+├── core/         # Cliente API (Axios + JWT), Supabase, storage, analítica
+├── shared/       # Layout, catálogo (mapa, filtros), UI, consentimiento y feedback
+├── features/     # auth, catalog, bookings, reviews, provider, profile, chat, admin, common
 └── styles/       # Estilos globales
 ```
 
-### Estructura del monorepo
+---
+
+## 3. Estructura del proyecto
 
 ```
 world-tourism-solutions/
-├── Back_WTS/                 # API Spring Boot + SQLite
-│   ├── src/main/java/        # Código fuente Java
-│   ├── src/main/resources/   # application.properties
-│   ├── uploads/              # Imágenes subidas en local
-│   ├── mvnw / mvnw.cmd       # Maven Wrapper
-│   ├── pom.xml
-│   └── worldturism.db        # Base SQLite (runtime)
-├── Front_WTS/                # Cliente React + TypeScript + Vite
+├── Back_WTS/                      # API Spring Boot
+│   ├── src/main/java/             # Código fuente Java
+│   ├── src/main/resources/        # application.properties
+│   ├── uploads/                   # Imágenes locales (no versionadas)
+│   ├── mvnw / mvnw.cmd            # Maven Wrapper
+│   └── pom.xml
+├── Front_WTS/                     # Cliente React + TypeScript + Vite
 │   ├── src/
 │   ├── public/
 │   ├── package.json
-│   └── vite.config.ts
-├── .gitignore
+│   ├── vite.config.ts
+│   └── .env                       # Variables Vite (crear localmente)
+├── pruebas-carga/                 # Scripts k6 y resultados de lecturas públicas
+│   ├── k6/businesses.js
+│   └── resultados/                # Salidas de corridas (5 / 10 / 25 VU)
+├── .gitignore                     # Incluye `Back_WTS/env` y artefactos de build
 └── README.md
 ```
 
 ---
 
-## 🗄️ 3. Modelo y Estructura de la Base de Datos
+## 4. Modelo de base de datos
 
-### Esquema relacional actual (SQLite)
+El esquema vive en **PostgreSQL** (Supabase). Hibernate opera con `ddl-auto=validate`: contrasta el mapeo JPA con el catálogo existente y **no crea ni altera** tablas al arrancar.
 
-El dominio gira en torno a **usuarios** y **perfiles comerciales de proveedor**. Toda la oferta turística visible en catálogo vive en `provider_profiles`; el resto de tablas operativas se relacionan con ese agregado.
+### PostGIS
+
+`provider_profiles` persiste `latitude` / `longitude`. La columna `location` (`geography(Point, 4326)`) se deriva en PostgreSQL y dispone de índice espacial GIST.
+
+`GET /api/businesses` acepta el trío opcional `lat`, `lng` y `radiusKm`. Si los tres se omiten, lista perfiles `APPROVED`. Si se envían, filtra con `ST_DWithin` sobre `location` (radio en metros = `radiusKm * 1000`). Los tres parámetros son obligatorios en conjunto; el radio debe ser mayor que 0 y a lo sumo 500 km. El catálogo autenticado puede fijar el origen con geolocalización del navegador o con un punto elegido a mano.
+
+### ENUMs nativos (PostgreSQL)
+
+| Columna | Valores |
+|---------|---------|
+| `users.role` | `BOT`, `ADMIN`, `USER`, `PROVIDER`, `SUPPORT` |
+| `provider_profiles.status` (`service_status_enum`) | `PENDING`, `APPROVED`, `REJECTED`, `INACTIVE` |
+| `bookings.status` | `PENDING`, `APPROVED`, `REJECTED`, `CANCELLED`, `COMPLETED` |
+| `conversations.conversation_type` | `CLIENT_TO_PROVIDER`, `CATALOG_INQUIRY`, `HUMAN_SUPPORT`, `CLIENT_TO_SUPPORT`, `PROVIDER_TO_SUPPORT` |
+| `conversations.support_status` | `UNASSIGNED`, `OPEN`, `IN_PROGRESS`, `NEEDS_HUMAN_SUPPORT`, `RESOLVED`, `CLOSED` |
+| `conversations.urgency` | `LOW`, `MEDIUM`, `HIGH` |
+
+### Analítica agregada (Looker)
+
+La tabla **`provider_daily_analytics`** vive en PostgreSQL y Hibernate solo la valida (`ddl-auto=validate`). No hay script SQL versionado en este repositorio. El modelo JPA es `ProviderDailyAnalytics`: una fila por `provider_profile_id` + `metric_date` (restricción `uq_provider_daily_analytics_provider_date`).
+
+| Columna | Qué cuenta | Dónde se dispara en el frontend |
+|---------|------------|----------------------------------|
+| `views_count` | Interés real (detalle) | Página `/booking/:id`, una vez por proveedor y pestaña (`trackDetailViewOnce`) |
+| `clicks_count` | Intención (CTA / mapa) | `ServiceCard` (Ver más / Reservar) y marker del mapa |
+| `searches_count` | Atribución post-búsqueda | Home autenticado: lote con debounce tras teclear en el filtro |
+
+El backend hace `INSERT ... ON CONFLICT (provider_profile_id, metric_date) DO UPDATE` y suma solo los contadores enviados. La fecha del upsert es `CURRENT_DATE` de la base. No existe la entidad histórica `AnalyticsEvent` ni un insert por cada impresión de tarjeta.
+
+El parámetro de Looker Studio se llama `id_proveedor`. El iframe lo aplica a las fuentes `ds1`, `ds2` y `ds3` (`?params={"ds1.id_proveedor":N,...}`).
+
+### Relación principal
 
 ```
 users (1) ──< (N) provider_profiles
                     │
-                    ├──< (N) provider_profile_images
-                    ├──< (N) bookings ── (0..1) reviews
-                    ├──< (N) conversations ──< (N) messages
-                    │         └── assigned_advisor_id → users (asesor SUPPORT/ADMIN)
-                    ├──< (N) reviews
-                    ├──< (N) favorites
-                    └──< (N) itinerary_items ──> itineraries ──> users
+                    ├──< provider_profile_images
+                    ├──< bookings ── (0..1) reviews
+                    ├──< conversations ──< messages
+                    ├──< reviews
+                    ├──< favorites
+                    ├──< provider_daily_analytics
+                    └──< itinerary_items ──> itineraries ──> users
 ```
 
-**Flujo principal de relaciones:**
+La oferta comercial está consolidada en **`ProviderProfile`** (tabla `provider_profiles`). No existen las tablas históricas `services` / `saved_services`.
 
-| Origen | Destino | Cardinalidad | Clave foránea |
-|--------|---------|--------------|---------------|
-| `users` | `provider_profiles` | 1:N | `user_id` |
-| `provider_profiles` | `provider_profile_images` | 1:N | `provider_profile_id` |
-| `users` / `provider_profiles` | `bookings` | N:1 / N:1 | `user_id`, `provider_profile_id` |
-| `users` / `provider_profiles` | `conversations` | N:1 / N:1 | `user_id`, `provider_profile_id` |
-| `users` | `conversations` (asesor) | 1:N | `assigned_advisor_id` |
-| `conversations` | `messages` | 1:N | `conversation_id` |
-| `users` / `provider_profiles` | `reviews` | N:1 / N:1 | `user_id`, `provider_profile_id` |
-| `users` | `itineraries` | 1:N | `user_id` |
-| `itineraries` / `provider_profiles` | `itinerary_items` | 1:N / N:1 | `itinerary_id`, `provider_profile_id` |
-| `users` / `provider_profiles` | `favorites` | N:1 / N:1 | `user_id`, `provider_profile_id` |
-
----
-
-### Documentación del refactor arquitectónico
-
-Se eliminó la duplicidad histórica entre “servicio turístico” y “perfil de proveedor”. La oferta comercial queda consolidada en un único agregado: **`ProviderProfile`**.
-
-#### Eliminación de `services` y `saved_services`
-
-| Antes | Ahora |
-|-------|--------|
-| Entidad/tabla `services` (`TourismService`) | **Eliminada** |
-| Entidad/tabla `saved_services` (`SavedService`) | **Eliminada** |
-| Datos de negocio y oferta repartidos en dos modelos | Unificados en **`ProviderProfile`** → tabla `provider_profiles` |
-
-`ProviderProfile` concentra el nombre del negocio, descripción, categoría, ciudad, precio, estado de aprobación, rating agregado y el resto de atributos de la oferta visible en catálogo.
-
-La migración automática `SqliteDropServicesMigration` elimina las tablas obsoletas y redirige las claves foráneas legacy hacia `provider_profiles.id`.
-
-#### Reestructuración de claves foráneas → `provider_profile_id`
-
-Las entidades dependientes ya no apuntan a un `service_id`. Se vinculan **exclusivamente** al perfil del proveedor:
-
-| Tabla | Entidad | FK actual |
-|-------|---------|-----------|
-| `bookings` | `Booking` | `provider_profile_id` |
-| `conversations` | `Conversation` | `provider_profile_id` |
-| `reviews` | `Review` | `provider_profile_id` |
-| `itinerary_items` | `ItineraryItem` | `provider_profile_id` |
-| `favorites` | `Favorite` | `provider_profile_id` (antes `business_id`) |
-
-La migración `SqliteFavoriteProviderProfileMigration` renombra/reconstruye `favorites` para usar `provider_profile_id` con unicidad `(user_id, provider_profile_id)`.
-
-#### Conversaciones: bot vs soporte humano
-
-`Conversation` distingue sesiones del asistente y tickets humanos:
-
-| Campo / concepto | Descripción |
-|------------------|-------------|
-| `is_bot_chat` | `true` en sesiones del asistente virtual; se excluyen del inbox ADMIN/SUPPORT y del chat comercial |
-| `assigned_advisor_id` | Asesor (`SUPPORT`/`ADMIN`) dueño del ticket; `null` mientras está en cola |
-| `SupportStatus.UNASSIGNED` | Ticket humano abierto sin asesor asignado |
-| Tipos | `CLIENT_TO_PROVIDER`, `CATALOG_INQUIRY`, `HUMAN_SUPPORT`, `CLIENT_TO_SUPPORT`, `PROVIDER_TO_SUPPORT` |
-
-Migraciones asociadas: `SqliteConversationBotChatMigration`, `SqliteConversationAssignedAdvisorMigration`.
-
-#### Galería de imágenes
-
-Se conserva **`ProviderProfileImage`** (`provider_profile_images`) como galería oficial: múltiples imágenes por perfil/servicio, ordenadas (`image_order`), con cascada y `orphanRemoval` desde `ProviderProfile`.
-
-```
-provider_profiles (1) ──< (N) provider_profile_images
-        │
-        ├──< bookings
-        ├──< reviews
-        ├──< conversations
-        ├──< favorites
-        └──< itinerary_items
-```
-
----
-
-### Listado de entidades principales
+### Entidades principales
 
 | Tabla | Entidad JPA | Descripción |
 |-------|-------------|-------------|
-| `users` | `AppUser` | Cuentas del sistema (credenciales, rol, estado activo, datos de contacto) |
-| `provider_profiles` | `ProviderProfile` | Perfil/negocio/oferta comercial del proveedor (núcleo del catálogo) |
-| `provider_profile_images` | `ProviderProfileImage` | Galería multimedia asociada a cada perfil |
-| `bookings` | `Booking` | Reservas/cotizaciones ligadas a un perfil y a un usuario |
-| `conversations` | `Conversation` | Hilos de chat (cliente–proveedor, soporte humano o bot); incluye `is_bot_chat` y `assigned_advisor` |
-| `messages` | `Message` | Mensajes individuales dentro de una conversación |
-| `reviews` | `Review` | Valoraciones y comentarios sobre un perfil (asociables a una reserva) |
-| `itineraries` | `Itinerary` | Planes de viaje creados por el usuario |
-| `itinerary_items` | `ItineraryItem` | Ítems del itinerario vinculados a un `provider_profile` |
-| `favorites` | `Favorite` | Perfiles (`provider_profile_id`) marcados como favoritos por el turista autenticado |
+| `users` | `AppUser` | Cuentas y roles. `id` (bigint) es la PK de dominio. `auth_user_id` (UUID, único, nullable) referencia `auth.users(id)` |
+| `provider_profiles` | `ProviderProfile` | Oferta comercial del proveedor |
+| `provider_profile_images` | `ProviderProfileImage` | Galería multimedia |
+| `bookings` | `Booking` | Reservas / cotizaciones |
+| `conversations` / `messages` | `Conversation` / `Message` | Chat y soporte |
+| `reviews` | `Review` | Valoraciones |
+| `itineraries` / `itinerary_items` | `Itinerary` / `ItineraryItem` | Modelo de itinerario en BD |
+| `favorites` | `Favorite` | Favoritos del turista |
+| `provider_daily_analytics` | `ProviderDailyAnalytics` | Contadores diarios (views/clicks/searches) |
+
+> La pantalla `/itinerary` consume `GET /api/bookings/itinerary`. Sin `date` devuelve reservas `PENDING`, `APPROVED` y `COMPLETED` agrupadas por ciudad. Con `date=yyyy-MM-dd` limita ese día, incluido el historial. No hay CRUD de `itineraries` expuesto en la API.
 
 ---
 
-## 🚀 4. Funcionalidades Principales
+## 5. API REST (endpoints)
 
-### Roles de usuario
+Base: `http://localhost:8080/api`  
+Documentación interactiva: `http://localhost:8080/swagger-ui.html`
+
+### Autenticación — `AuthController` (`/api/auth`)
+
+| Método | Ruta | Auth | Respuesta |
+|--------|------|------|-----------|
+| `POST` | `/register` | Pública | JWT. Roles permitidos en el alta: `USER`, `PROVIDER` |
+| `POST` | `/login` | Pública | JWT |
+| `PUT` | `/reset-password` | Pública | `204`. Cuerpo: `email`, `newPassword` (8–72), `accessToken` de Supabase Auth |
+| `GET` | `/me` | JWT | Usuario del token |
+
+`PUT /reset-password` no inicia sesión. Comprueba el access token con `GET /auth/v1/user` (`apikey` anónima y `Authorization: Bearer`) y reescribe `users.password` del usuario cuyo `auth_user_id` coincide con el `id` de esa sesión. Si falta `app.supabase.anon-key`, la operación falla.
+
+El cambio de contraseña de una sesión ya autenticada es otro contrato: `PUT /api/users/profile/password`.
+
+### Reservas e itinerario
+
+| Método | Ruta | Quién |
+|--------|------|-------|
+| `POST` | `/api/bookings` | Usuario autenticado. Crea la reserva (`201`) |
+| `GET` | `/api/bookings` | Reservas del turista autenticado |
+| `GET` | `/api/bookings/itinerary` | Mismo usuario. Query opcional `date` (`yyyy-MM-dd`) |
+| `GET` | `/api/provider/bookings` | `PROVIDER` o `ADMIN` |
+| `POST` | `/api/provider/bookings/{bookingId}/approve` | `PROVIDER` o `ADMIN` |
+| `POST` | `/api/provider/bookings/{bookingId}/reject` | `PROVIDER` o `ADMIN` |
+
+`GET /itinerary` incluye solo `PENDING`, `APPROVED` y `COMPLETED`. `REJECTED` y `CANCELLED` no entran en el agrupado por ciudad.
+
+### Analítica — `AnalyticsEventController`
+
+| Método | Ruta | Auth | Efecto |
+|--------|------|------|--------|
+| `POST` | `/api/analytics/events` | Pública | `204`. Incrementa un contador del día |
+| `POST` | `/api/analytics/events/batch` | Pública | `204`. Hasta 40 eventos; el servicio los colapsa por proveedor antes del UPSERT |
+
+Tipos: `SEARCH`, `VIEW`, `CLICK`. La seguridad admite la llamada sin JWT. Si `localStorage` tiene token, Axios lo envía igual; el servicio no lo usa para autorizar el upsert.
+
+### Chat y soporte
+
+Canal vigente de mesa de ayuda: `/api/support/conversations`.
+
+| Método | Ruta | Roles |
+|--------|------|-------|
+| `POST` | `/open` | `USER`, `PROVIDER`. Cuerpo `CreateSupportTicketRequest`. Estado inicial `UNASSIGNED` |
+| `PUT` | `/{id}/assign` | `ADMIN`, `SUPPORT` |
+| `GET` | `/inbox` | `ADMIN`, `SUPPORT` |
+| `PATCH` | `/{id}/status` | `ADMIN`, `SUPPORT`. Estado y/o urgencia |
+| `POST` | `/{id}/messages` | `ADMIN`, `SUPPORT`. Respuesta del staff (`201`) |
+
+`ChatController` (`/api/chat`) cubre el asistente y la mensajería comercial:
+
+| Método | Ruta | Uso |
+|--------|------|-----|
+| `POST` | `/message` | Asistente virtual. `USER` o `PROVIDER` |
+| `GET` | `/tickets/active` | Tickets escalados por el bot (`ADMIN` / `SUPPORT`) |
+| `POST` | `/tickets/{id}/reply` | Respuesta a un ticket del bot |
+| `GET` | `/conversations` | Bandeja del usuario autenticado |
+| `POST` | `/conversations` | Cliente inicia chat con un proveedor |
+| `POST` | `/conversations/with-client` | Proveedor inicia chat con un cliente |
+| `GET` | `/conversations/{conversationId}/messages` | Historial |
+| `POST` | `/conversations/{conversationId}/messages` | Enviar mensaje |
+| `PATCH` | `/conversations/{conversationId}/read` | Marcar leído (`204`) |
+
+Estas cuatro rutas siguen activas y delegan en el mismo servicio que `/api/support/conversations`. El contrato preferido es el de soporte:
+
+| Legacy | Equivalente |
+|--------|-------------|
+| `POST /api/chat/support` | `POST /api/support/conversations/open` |
+| `GET /api/chat/support` | `GET /api/support/conversations/inbox` |
+| `PATCH /api/chat/support/{id}/status` | `PATCH /api/support/conversations/{id}/status` |
+| `POST /api/chat/support/{id}/messages` | `POST /api/support/conversations/{id}/messages` |
+
+### Resto de la API
+
+| Prefijo | Controlador | Operaciones |
+|---------|-------------|-------------|
+| `/api/users/profile` | `UserController` | `GET /me`, `PUT /`, `POST /picture`, `PUT /picture`, `PUT /password` |
+| `/api/businesses` | `PublicBusinessController` | `GET /` (query opcional `lat`, `lng`, `radiusKm`), `GET /{businessId}` |
+| `/api/provider/business` | `ProviderBusinessController` | `POST /`, `GET /`, `PUT /{businessId}`, `DELETE /{businessId}` |
+| `/api/reviews` | `ReviewController` | `POST /`, `GET /me`, `GET /businesses/{businessId}` |
+| `/api/favorites` | `FavoritesController` | `POST /{providerProfileId}`, `DELETE /{providerProfileId}`, `GET /`, `GET /{providerProfileId}/status`. Solo rol `USER` |
+| `/api/admin` | `AdminController` | `GET /stats`, `GET /users`, `PUT /users/{id}`, `DELETE /users/{id}`, `GET /businesses`, `PATCH /businesses/{id}/status`, `DELETE /businesses/{id}` |
+
+### Acceso sin JWT y por rol
+
+Públicas: `POST /api/auth/register`, `POST /api/auth/login`, `PUT /api/auth/reset-password`, Swagger (`/swagger-ui.html`, `/swagger-ui/**`, `/v3/api-docs/**`), `GET /api/businesses` y `GET /api/businesses/**`, `POST /api/analytics/events` y `POST /api/analytics/events/batch`, `/uploads/**`, `/error`.
+
+| Ámbito | Roles |
+|--------|-------|
+| `/api/provider/**` | `PROVIDER`, `ADMIN` |
+| `/api/favorites/**` | `USER` |
+| `GET /api/admin/**`, `PATCH /api/admin/businesses/*/status`, `PUT /api/admin/users/**` | `ADMIN`, `SUPPORT` |
+| `DELETE /api/admin/**` y el resto de `/api/admin/**` | `ADMIN` |
+| Apertura de soporte | `USER`, `PROVIDER` |
+| Inbox, asignación, estado y respuesta de soporte | `ADMIN`, `SUPPORT` |
+
+CORS de desarrollo: `http://localhost:5173`, `http://localhost:3000`, `http://localhost:4200`. Métodos: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`.
+
+---
+
+## 6. Funcionalidades principales
+
+### Roles
 
 | Rol | Responsabilidad |
 |-----|-----------------|
-| `ADMIN` | Administración completa de usuarios, perfiles y operaciones de la plataforma |
-| `USER` | Exploración del catálogo, reservas, reseñas, favoritos, chat e itinerarios |
-| `PROVIDER` | Publicación y gestión de perfiles/ofertas comerciales, atención de reservas y chat con clientes |
-| `SUPPORT` | Inbox de tickets humanos, asignación/reclamación y respuesta; sin administración total de la plataforma |
-| `BOT` | Identidad del asistente virtual en conversaciones automatizadas |
+| `ADMIN` | Administración de usuarios, perfiles y operaciones |
+| `USER` | Catálogo, reservas, reseñas, favoritos, chat e itinerario |
+| `PROVIDER` | Gestión de ofertas, reservas entrantes, chat y analítica |
+| `SUPPORT` | Inbox de tickets humanos (sin administración total) |
+| `BOT` | Identidad del asistente virtual |
 
-### Publicación y administración de perfiles/servicios
+### Catálogo y mapas
 
-- Alta, edición y moderación de perfiles comerciales (`ProviderProfile`)
-- Galería multimedial con múltiples imágenes ordenadas
-- Estados de publicación/aprobación del servicio
-- Catálogo público consultable por turistas
+- Perfiles con galería, precio, categoría, ciudad y coordenadas
+- Mapa con **Leaflet** (tiles OpenStreetMap)
+- Filtro de cercanía en el servidor (PostGIS). Origen: geolocalización del navegador o selección manual del punto
 
-### Sistema de reservas y cotizaciones
+### Reservas e itinerario
 
-- Solicitud de reserva asociada a un perfil de proveedor
-- Control de estado del ciclo de vida (p. ej. pendiente, confirmada, cancelada)
-- Panel del proveedor para gestionar solicitudes entrantes
-- Cálculo de precio total según personas y oferta
+- Ciclo de vida: `PENDING` → `APPROVED` / `REJECTED` / `CANCELLED` / `COMPLETED`
+- Panel del proveedor para aprobar o rechazar
+- `/itinerary` muestra un calendario (`react-day-picker`) y tres periodos en cliente: todos, activas y pasadas
+- Al elegir un día, el cliente llama `GET /api/bookings/itinerary?date=yyyy-MM-dd`
 
-### Módulo de chat interno
+### Chat y soporte
 
-- Conversaciones cliente ↔ proveedor vinculadas a `provider_profile_id`
-- Mensajes de texto (e imágenes) con estado de lectura
-- Inbox por rol: turista, proveedor y supervisión staff (ADMIN/SUPPORT ven cliente y negocio)
-- DTO enriquecido (`ConversationResponse`): contraparte, avatares, `clientId`/`clientName` y `isBotChat`
-- Historial persistente por conversación (se excluyen chats del bot del listado humano)
+- Chat comercial cliente ↔ proveedor
+- Widget FAQ efímero en frontend (`useEphemeralChatbot`)
+- Escalamiento a asesor: `POST /api/support/conversations/open`
+- Asignación e inbox staff: `PUT .../assign`, `GET .../inbox`
+- Estado/urgencia y respuesta staff: `PATCH .../{id}/status`, `POST .../{id}/messages`
+- Las rutas `/api/chat/support/**` permanecen como alias legacy del mismo servicio
 
-### Asistente virtual y soporte humano
+### Recuperación de contraseña
 
-| Canal | Comportamiento |
-|-------|----------------|
-| **Widget / FAQ efímero** | Chatbot de ayuda rápida en frontend (`useEphemeralChatbot`); no genera ticket hasta escalar |
-| **Escalamiento** | El usuario puede “Hablar con un asesor”: abre ticket en cola (`POST /api/support/conversations/open`) |
-| **Cola de soporte** | Estado inicial `UNASSIGNED`; tipo `HUMAN_SUPPORT` (también legacy `CLIENT_TO_SUPPORT` / `PROVIDER_TO_SUPPORT`) |
-| **Asignación** | Asesor reclama el ticket (`PUT /api/support/conversations/{id}/assign`) → `IN_PROGRESS` + `assigned_advisor` |
-| **Inbox staff** | `GET /api/support/conversations/inbox` — sin asignar o asignados al asesor autenticado |
-| **Sesiones bot persistentes** | Marcadas con `is_bot_chat = true`; no aparecen en paneles de soporte ni chats comerciales |
+1. Supabase Auth redirige a `/update-password` con el hash de recuperación (`type=recovery` y access token).
+2. El cliente actualiza la clave en la sesión de Supabase.
+3. Llama `PUT /api/auth/reset-password` sin JWT de la aplicación.
+4. El backend localiza la cuenta por `users.auth_user_id` y actualiza el hash BCrypt.
+5. Tras `204`, cierra la sesión local y vuelve al login.
 
-### Favoritos (turista)
+### Consentimiento y encuesta
 
-- Solo rol `USER`, autenticado con JWT (`/api/favorites/**`)
-- Objetivo del favorito: `ProviderProfile` (`provider_profile_id`)
-- Aislamiento por usuario en servicio; el frontend limpia/recarga favoritos al login, registro o logout (`notifyAuthChanged`)
+- Registro (`/register`) y reserva (`/booking/:id`) exigen dos casillas en cliente: términos y tratamiento de datos (Ley 1581 de 2012) y uso de ubicación en la sesión. Ese checklist no se persiste en la API.
+- Tras una reserva o al usar el itinerario puede abrirse `FeedbackPrompt`. El enlace de la encuesta sale de `VITE_FEEDBACK_FORM_URL`. Sin esa variable el botón queda deshabilitado. Cada flujo se ofrece como máximo una vez por pestaña (`sessionStorage`).
 
-### Planificador interactivo de itinerarios
+### Storage de imágenes
 
-- Creación de itinerarios con título y rango de fechas
-- Inclusión de ítems ordenables vinculados a perfiles reales del catálogo
-- Notas y fechas programadas por actividad
+- Buckets Supabase usados por el frontend: `user-avatars`, `service-gallery`
+- Formatos: JPG, PNG, WEBP — máximo 5 MB por archivo (`spring.servlet.multipart.max-file-size=5MB`, request hasta 25 MB)
 
-### Sistema de valoraciones y reseñas
+### Analítica de proveedor
 
-- Calificación numérica y comentario textual
-- Asociación opcional a una reserva concreta
-- Actualización de rating agregado y conteo en el perfil del proveedor
+- `/analitica` embebe un único reporte de Looker Studio filtrado por el id del proveedor autenticado.
+- URL por defecto en `lookerConfig.ts`. Override: `VITE_LOOKER_REPORT_URL` (alias legacy `VITE_LOOKER_EMBED_URL`).
+- Fuentes por defecto: `ds1`, `ds2`, `ds3`. Override CSV: `VITE_LOOKER_DATASOURCE_IDS`. `VITE_LOOKER_DATASOURCE_ID` queda solo por compatibilidad de una sola fuente.
+- El frontend envía eventos con `trackEvent` / `trackEventBatch` y descarta los errores.
+
+### Rutas del cliente
+
+| Ruta | Acceso | Pantalla |
+|------|--------|----------|
+| `/` | Pública | Catálogo |
+| `/login`, `/register` | Pública | Acceso y alta |
+| `/update-password` | Pública (hash de recuperación de Supabase) | Nueva contraseña |
+| `/booking/:id` | Pública | Detalle y reserva |
+| `/reviews/:id` | Pública | Reseñas |
+| `/home-logueado` | Autenticado | Catálogo con filtros |
+| `/itinerary` | Autenticado | Calendario e itinerario |
+| `/chat`, `/messages` | Autenticado | Misma pantalla de mensajería |
+| `/profile`, `/edit-profile` | Autenticado | Perfil |
+| `/dashboard-accesor`, `/create-service`, `/edit-service/:id`, `/booking-detail/:id`, `/analitica` | `PROVIDER` | Operación y analítica |
+| `/admin` | `ADMIN`, `SUPPORT` | Panel de administración |
 
 ---
 
-## 🛠️ 5. Guía de Instalación y Ejecución Local
+## 7. Instalación y configuración
 
 ### Requisitos previos
 
-| Herramienta | Versión recomendada |
-|-------------|---------------------|
-| **Java JDK** | 17+ |
-| **Node.js** | 18+ |
-| **npm** | Incluido con Node.js |
-| **Maven** | 3.9+ (o el wrapper incluido `mvnw` / `mvnw.cmd`) |
+| Herramienta | Versión |
+|-------------|---------|
+| **JDK** | 17+ |
+| **Node.js** | 18+ (npm incluido) |
+| **Maven** | Opcional; se recomienda el wrapper incluido |
+| **k6** | Opcional; solo para `pruebas-carga/k6/businesses.js` |
 
 ### 1. Clonar el repositorio
 
@@ -309,7 +401,70 @@ git clone <URL_DEL_REPOSITORIO>
 cd world-tourism-solutions
 ```
 
-### 2. Levantar el Backend (`Back_WTS`)
+### 2. Configurar el backend
+
+`application.properties` no guarda credenciales. Definir estas variables en el entorno del proceso Java antes de arrancar:
+
+```bash
+SPRING_DATASOURCE_URL=jdbc:postgresql://<HOST>:5432/postgres?sslmode=require
+SPRING_DATASOURCE_USERNAME=<USUARIO>
+SPRING_DATASOURCE_PASSWORD=<PASSWORD>
+JWT_SECRET=<SECRETO_BASE64_MIN_32_BYTES>
+SUPABASE_ANON_KEY=<CLAVE_ANON_PUBLICA>
+SUPABASE_SERVICE_ROLE_KEY=<CLAVE_SERVICE_ROLE>
+```
+
+`JWT_SECRET` es obligatorio y debe ser la codificación Base64 de al menos 32 bytes (por ejemplo `openssl rand -base64 32`). La aplicación no arranca si falta o es más corta.
+
+Notas:
+
+- La base debe existir previamente (Hibernate **no** crea el esquema).
+- No versionar contraseñas, la clave JWT, la anon key ni la service role key. `app.supabase.anon-key` lee `SUPABASE_ANON_KEY`. `app.supabase.service-role-key` lee `SUPABASE_SERVICE_ROLE_KEY` y solo se usa en el servidor.
+- Hibernate no altera el esquema. En una base que todavía no tenga el vínculo con Auth, aplicar `Back_WTS/src/main/resources/db/add_users_auth_user_id.sql` (columna `users.auth_user_id`, unicidad, FK opcional a `auth.users` y enlace de cuentas ya existentes por correo).
+- El puerto de PostgreSQL forma parte de `SPRING_DATASOURCE_URL`.
+
+### 3. Configurar el frontend
+
+Crear `Front_WTS/.env`:
+
+```env
+VITE_SUPABASE_URL=https://<PROYECTO>.supabase.co
+VITE_SUPABASE_ANON_KEY=<CLAVE_ANON_PUBLICA>
+```
+
+Opcionales:
+
+```env
+# Si se omite, el panel usa la URL por defecto de lookerConfig.ts
+VITE_LOOKER_REPORT_URL=https://datastudio.google.com/embed/reporting/<REPORT_ID>/page/<PAGE_ID>
+# Alias aceptado si VITE_LOOKER_REPORT_URL no está definida
+VITE_LOOKER_EMBED_URL=
+# CSV. Por defecto en código: ds1,ds2,ds3
+VITE_LOOKER_DATASOURCE_IDS=ds1,ds2,ds3
+# Una sola fuente. Obsoleto: preferir VITE_LOOKER_DATASOURCE_IDS
+VITE_LOOKER_DATASOURCE_ID=
+# Google Forms. Sin valor, el botón de la encuesta queda deshabilitado
+VITE_FEEDBACK_FORM_URL=https://docs.google.com/forms/d/e/<FORM_ID>/viewform
+```
+
+La URL de la API está fijada en `Front_WTS/src/core/api/client.ts`:
+
+```ts
+export const API_BASE_URL = 'http://localhost:8080/api';
+```
+
+### 4. Instalar dependencias del frontend
+
+```bash
+cd Front_WTS
+npm install
+```
+
+---
+
+## 8. Ejecución
+
+### Desarrollo — Backend
 
 **Windows:**
 
@@ -325,7 +480,7 @@ cd Back_WTS
 ./mvnw spring-boot:run
 ```
 
-Compilación sin tests (opcional):
+Compilación rápida (opcional):
 
 ```bash
 # Windows
@@ -335,79 +490,77 @@ Compilación sin tests (opcional):
 ./mvnw compile -DskipTests
 ```
 
-| Configuración | Valor |
-|---------------|-------|
-| Puerto | `8080` |
-| Base de datos | `Back_WTS/worldturism.db` (SQLite) |
-| API base | http://localhost:8080/api |
+| Recurso | URL / valor |
+|---------|-------------|
+| API | http://localhost:8080/api |
 | Swagger UI | http://localhost:8080/swagger-ui.html |
-| CORS | `http://localhost:5173` (también `3000` / `4200`) |
+| CORS permitidos | `http://localhost:5173`, `3000`, `4200` |
 
-### 3. Levantar el Frontend (`Front_WTS`)
+### Desarrollo — Frontend
 
-En una segunda terminal:
+En otra terminal:
 
 ```bash
 cd Front_WTS
-npm install
 npm run dev
 ```
 
-Build de producción (opcional):
+| Recurso | URL |
+|---------|-----|
+| App | http://localhost:5173 |
+
+### Pruebas de carga (k6)
+
+Lecturas públicas, sin autenticación: `pruebas-carga/k6/businesses.js`. Escenarios secuenciales sobre `GET /api/businesses` (espacial, listado y detalle).
 
 ```bash
+# Humo (por defecto)
+k6 run pruebas-carga/k6/businesses.js
+
+# Carga. VUS > 10 exige -e CONFIRMO_CARGA_ALTA=si
+k6 run -e PERFIL=carga -e VUS=10 pruebas-carga/k6/businesses.js
+```
+
+| Variable (`-e`) | Efecto |
+|-----------------|--------|
+| `BASE_URL` | Por defecto `http://localhost:8080` |
+| `PERFIL` | `smoke` o `carga` |
+| `VUS` | Pico de usuarios virtuales en `carga` (por defecto 5) |
+| `THINK_TIME_S` | Pausa entre peticiones (por defecto 1) |
+| `BUSINESS_IDS` | IDs para el escenario de detalle, separados por coma |
+| `CONFIRMO_CARGA_ALTA` | Obligatorio con valor `si` si `VUS > 10` |
+
+Hay resultados de referencia en `pruebas-carga/resultados/` (`carga-5vu`, `carga-10vu`, `carga-25vu`).
+
+### Producción — Frontend
+
+```bash
+cd Front_WTS
 npm run build
 ```
 
-| Configuración | Valor |
-|---------------|-------|
-| Puerto | `5173` |
-| App | http://localhost:5173 |
-| API | `http://localhost:8080/api` (`src/core/api/client.ts`) |
-
-Opcional — crear `Front_WTS/.env` para el mapa:
-
-```env
-VITE_GOOGLE_MAPS_API_KEY=tu_clave_de_google_maps
-```
-
-> Sin la clave de Maps el resto de la aplicación funciona con normalidad.
+El artefacto queda en `Front_WTS/dist/`. El backend se empaqueta con el plugin de Spring Boot (`mvnw package`) y se ejecuta el JAR generado en `Back_WTS/target/`.
 
 ---
 
-## 📋 6. Roadmap y Tareas Pendientes (TODOs)
+## 9. Roadmap
 
-| Prioridad | Tarea | Objetivo |
-|-----------|-------|----------|
-| Alta | **Migración SQLite → PostgreSQL** | Soporte de producción, transacciones robustas y alta concurrencia |
-| Alta | **Consultas geoespaciales** | Búsqueda por coordenadas/ubicación (proximidad, mapas, filtrado territorial) |
-| Media | **Pasarela de pagos en línea** | Cobro y confirmación de reservas dentro de la plataforma |
-| Media | **Ampliación de pruebas** | Mayor cobertura unitaria e de integración en `Back_WTS` y `Front_WTS` |
-
-### Detalle
-
-1. **PostgreSQL en producción**  
-   Sustituir SQLite por un motor relacional preparado para despliegues concurrentes, respaldos y escalado horizontal.
-
-2. **Búsqueda geoespacial**  
-   Incorporar latitud/longitud (o PostGIS) para consultas por radio, ordenamiento por distancia y mejor experiencia de descubrimiento.
-
-3. **Integración de pagos**  
-   Conectar una pasarela (p. ej. Stripe, PayU u otra regional) al flujo de reservas/cotizaciones.
-
-4. **Calidad y pruebas**  
-   Ampliar tests de dominio, controladores, contratos API y flujos críticos del frontend (auth, reservas, chat, itinerarios).
+| Prioridad | Tarea | Estado / objetivo |
+|-----------|-------|-------------------|
+| Alta | **API geoespacial** | Expuesta: `GET /api/businesses?lat=&lng=&radiusKm=` (`ST_DWithin`, radio 0–500 km) |
+| Media | **Pasarela de pagos** | Cobro y confirmación de reservas en plataforma |
+| Media | **Cobertura de pruebas** | k6 de lecturas públicas en `pruebas-carga/`. Pendiente ampliar unitarias e integración |
 
 ---
 
-## Integrantes
+## 10. Integrantes y licencia
+
+### Integrantes
 
 - Jossuath Leandro Florez Granados
 - Diego Andres Marciales Florez
 - Johan Sebastian Maldonado Suarez
 
----
-
-## Licencia
+### Licencia
 
 Proyecto académico — uso restringido al contexto del trabajo de grado y sus evaluaciones asociadas.

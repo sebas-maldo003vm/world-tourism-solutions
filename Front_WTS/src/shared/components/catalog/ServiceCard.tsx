@@ -4,7 +4,6 @@ import {
   MapPin
 } from 'lucide-react';
 
-import { useState } from 'react';
 
 import { Button } from '@/shared/components/ui/button';
 
@@ -13,9 +12,10 @@ import {
   CardContent
 } from '@/shared/components/ui/card';
 
-import { Service } from '@/core/mocks/mockData';
 import { ImageCarousel } from '@/shared/components/catalog/ImageCarousel';
 import { useFavorites } from '@/features/catalog/hooks/useFavorites';
+import type { Service } from '@/features/catalog/types';
+import { trackEvent } from '@/core/analytics/trackEvent';
 
 import { useNavigate } from 'react-router-dom';
 import { contactProvider } from '@/features/chat/utils/contactProvider';
@@ -30,7 +30,6 @@ export function ServiceCard({
 
   const navigate = useNavigate();
   const { isFavorite, toggleFavorite } = useFavorites();
-  const [contacting, setContacting] = useState(false);
 
   const saved = isFavorite(service.id);
 
@@ -41,6 +40,15 @@ export function ServiceCard({
   const images = service.imageUrls?.length
     ? service.imageUrls
     : [service.image];
+
+  /** CLICK = intención real. No se registra VIEW al montar la tarjeta (evita N inserts). */
+  const handleViewDetail = () => {
+    const providerId = Number(service.providerId);
+    if (Number.isFinite(providerId) && providerId > 0) {
+      trackEvent({ eventType: 'CLICK', providerProfileId: providerId });
+    }
+    navigate(`/booking/${service.id}`);
+  };
 
   return (
     <Card className="group overflow-hidden hover:shadow-lg transition-shadow">
@@ -148,18 +156,14 @@ export function ServiceCard({
 
           <Button
             variant="outline"
-            onClick={() =>
-              navigate(`/booking/${service.id}`)
-            }
+            onClick={handleViewDetail}
             className="rounded-full"
           >
             Ver más
           </Button>
 
           <Button
-            onClick={() =>
-              navigate(`/booking/${service.id}`)
-            }
+            onClick={handleViewDetail}
             className="bg-blue-600 hover:bg-blue-700 rounded-full"
           >
             Reservar
@@ -171,19 +175,20 @@ export function ServiceCard({
         {isLogged && (
           <Button
             variant="ghost"
-            onClick={async () => {
+            onClick={() => {
               if (!service.providerId) {
-                navigate('/chat');
+                navigate('/messages');
                 return;
               }
-              setContacting(true);
-              await contactProvider(navigate, service.providerId);
-              setContacting(false);
+              contactProvider(navigate, service.providerId, {
+                serviceId: service.id,
+                serviceName: service.name,
+                providerName: service.name,
+              });
             }}
-            disabled={contacting}
             className="w-full mt-2 rounded-full text-sm"
           >
-            {contacting ? 'Abriendo chat...' : 'Contactar'}
+            Contactar
           </Button>
         )}
 

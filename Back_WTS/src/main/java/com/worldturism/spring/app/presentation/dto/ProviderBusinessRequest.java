@@ -2,6 +2,7 @@ package com.worldturism.spring.app.presentation.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.util.List;
 
 public record ProviderBusinessRequest(
 		@NotBlank(message = "El nombre del negocio es obligatorio")
@@ -30,5 +31,10 @@ public record ProviderBusinessRequest(
 		String price,
 
 		@Size(max = 200, message = "El sitio web no puede superar 200 caracteres")
-		String website) {
+		String website,
+		String latitude,
+
+		String longitude,
+
+		List<String> imageUrls) {
 }

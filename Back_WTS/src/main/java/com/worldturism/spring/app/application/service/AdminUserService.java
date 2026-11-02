@@ -31,9 +31,8 @@ public class AdminUserService {
 		AppUser user = userRepository.findById(userId)
 				.orElseThrow(() -> new IllegalArgumentException("No existe un usuario con ese id."));
 
-		// SUPPORT no puede cambiar roles (solo ADMIN).
-		if (admin.getRole() == Role.SUPPORT && request.role() != null) {
-			throw new IllegalArgumentException("El rol SUPPORT no puede modificar roles de usuario.");
+		if (admin.getRole() == Role.SUPPORT) {
+			assertSupportMayUpdate(user, request);
 		}
 
 		if (admin.getId().equals(userId)) {
@@ -71,5 +70,24 @@ public class AdminUserService {
 				.orElseThrow(() -> new IllegalArgumentException("No existe un usuario con ese id."));
 
 		userRepository.delete(user);
+	}
+
+	/**
+	 * SUPPORT may update tourists and providers only.
+	 * Admin and support accounts, including their active flag, stay unchanged.
+	 */
+	private void assertSupportMayUpdate(AppUser target, AdminUserUpdateRequest request) {
+		if (request.role() != null) {
+			throw new IllegalArgumentException("El rol SUPPORT no puede modificar roles de usuario.");
+		}
+
+		if (!isSupportManageable(target.getRole())) {
+			throw new IllegalArgumentException(
+					"El rol SUPPORT no puede modificar cuentas de administrador o soporte.");
+		}
+	}
+
+	private boolean isSupportManageable(Role role) {
+		return role == Role.USER || role == Role.PROVIDER;
 	}
 }

@@ -3,6 +3,8 @@ package com.worldturism.spring.app.domain.model;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -32,6 +34,14 @@ public class Itinerary {
 	private LocalDate startDate;
 
 	private LocalDate endDate;
+
+	/**
+	 * Estado de una propuesta informativa de un día.
+	 * {@code null} cuando el itinerario no es una propuesta.
+	 */
+	@Enumerated(EnumType.STRING)
+	@Column(name = "proposal_status", length = 20)
+	private ProposalStatus proposalStatus;
 
 	@Column(nullable = false, updatable = false)
 	private Instant createdAt;
@@ -81,6 +91,14 @@ public class Itinerary {
 
 	public void setEndDate(LocalDate endDate) {
 		this.endDate = endDate;
+	}
+
+	public ProposalStatus getProposalStatus() {
+		return proposalStatus;
+	}
+
+	public void setProposalStatus(ProposalStatus proposalStatus) {
+		this.proposalStatus = proposalStatus;
 	}
 
 	public Instant getCreatedAt() {

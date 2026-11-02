@@ -6,32 +6,35 @@ import com.worldturism.spring.app.domain.model.Role;
 import com.worldturism.spring.app.domain.model.ServiceStatus;
 import com.worldturism.spring.app.infrastructure.persistence.repository.ProviderProfileRepository;
 import com.worldturism.spring.app.infrastructure.storage.ImageStorageService;
+import com.worldturism.spring.app.infrastructure.storage.SupabasePublicUrlValidator;
 import com.worldturism.spring.app.presentation.dto.ProviderBusinessRequest;
 import com.worldturism.spring.app.presentation.dto.ProviderResponse;
 import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class ProviderBusinessManager {
 
 	private final ProviderProfileRepository providerProfileRepository;
 	private final ImageStorageService imageStorageService;
+	private final SupabasePublicUrlValidator supabasePublicUrlValidator;
 
 	public ProviderBusinessManager(
 			ProviderProfileRepository providerProfileRepository,
-			ImageStorageService imageStorageService) {
+			ImageStorageService imageStorageService,
+			SupabasePublicUrlValidator supabasePublicUrlValidator) {
 		this.providerProfileRepository = providerProfileRepository;
 		this.imageStorageService = imageStorageService;
+		this.supabasePublicUrlValidator = supabasePublicUrlValidator;
 	}
 
 	@Transactional
-	public ProviderResponse create(AppUser user, ProviderBusinessRequest request, List<MultipartFile> images) {
+	public ProviderResponse create(AppUser user, ProviderBusinessRequest request) {
 		validateProvider(user);
 
-		List<String> imageUrls = imageStorageService.storeProviderBusinessImages(images);
+		List<String> imageUrls = supabasePublicUrlValidator.requireGalleryUrls(request.imageUrls(), List.of());
 
 		ProviderProfile profile = new ProviderProfile();
 		profile.setBusinessName(request.businessName());
@@ -42,6 +45,8 @@ public class ProviderBusinessManager {
 		profile.setCategory(request.category());
 		profile.setPrice(parsePrice(request.price()));
 		profile.setWebsite(request.website());
+		profile.setLatitude(parseCoordinate(request.latitude()));
+profile.setLongitude(parseCoordinate(request.longitude()));
 		profile.setLogoUrl(imageUrls.get(0));
 		profile.setImageUrls(imageUrls);
 		profile.setStatus(ServiceStatus.PENDING);
@@ -49,6 +54,16 @@ public class ProviderBusinessManager {
 
 		return ProviderResponse.from(providerProfileRepository.save(profile));
 	}
+	private Double parseCoordinate(String value) {
+    if (value == null || value.isBlank()) {
+        return null;
+    }
+    try {
+        return Double.parseDouble(value.trim());
+    } catch (NumberFormatException exception) {
+        throw new IllegalArgumentException("La coordenada debe tener un formato valido.");
+    }
+}
 
 	@Transactional(readOnly = true)
 	public List<ProviderResponse> listMyBusinesses(AppUser user) {
@@ -61,7 +76,7 @@ public class ProviderBusinessManager {
 	}
 
 	@Transactional
-	public ProviderResponse update(AppUser user, Long businessId, ProviderBusinessRequest request, List<MultipartFile> images) {
+	public ProviderResponse update(AppUser user, Long businessId, ProviderBusinessRequest request) {
 		validateProvider(user);
 
 		ProviderProfile profile = providerProfileRepository.findByIdAndUserId(businessId, user.getId())
@@ -75,13 +90,18 @@ public class ProviderBusinessManager {
 		profile.setCategory(request.category());
 		profile.setPrice(parsePrice(request.price()));
 		profile.setWebsite(request.website());
+		profile.setLatitude(parseCoordinate(request.latitude()));
+		profile.setLongitude(parseCoordinate(request.longitude()));
 
-		if (images != null && !images.isEmpty()) {
+		if (request.imageUrls() != null && !request.imageUrls().isEmpty()) {
 			List<String> oldImageUrls = List.copyOf(profile.getImageUrls());
-			List<String> imageUrls = imageStorageService.storeProviderBusinessImages(images);
+			List<String> imageUrls = supabasePublicUrlValidator.requireGalleryUrls(
+					request.imageUrls(),
+					oldImageUrls);
 			profile.setLogoUrl(imageUrls.get(0));
 			profile.setImageUrls(imageUrls);
-			imageStorageService.deleteStoredImages(oldImageUrls);
+			imageStorageService.deleteStoredImages(
+					oldImageUrls.stream().filter(url -> !imageUrls.contains(url)).toList());
 		}
 
 		return ProviderResponse.from(providerProfileRepository.save(profile));

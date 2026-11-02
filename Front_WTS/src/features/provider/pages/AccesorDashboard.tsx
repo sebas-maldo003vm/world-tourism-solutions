@@ -17,6 +17,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 
 import {
+  BarChart3,
   CalendarDays,
   Check,
   MessageCircle,
@@ -78,20 +79,6 @@ interface ProviderBooking {
 
 const getBusinessId = (service: Service) => (
   service.businessId ?? service.id
-);
-
-const getServiceStatus = (service: Service) => (
-  service.status?.toUpperCase() || ''
-);
-
-const isActiveService = (service: Service) => {
-  const status = getServiceStatus(service);
-
-  return status === 'ACTIVE' || status === 'APPROVED' || status === 'APROVED';
-};
-
-const isPendingService = (service: Service) => (
-  getServiceStatus(service) === 'PENDING'
 );
 
 const getBookingId = (booking: ProviderBooking) => (
@@ -330,7 +317,7 @@ export function AccesorDashboard() {
       <div className="max-w-7xl mx-auto px-4">
 
         {/* HEADER */}
-        <div className="mb-6 flex justify-between items-center">
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 
           <div>
             <h1 className="text-3xl font-bold">
@@ -342,15 +329,25 @@ export function AccesorDashboard() {
             </p>
           </div>
 
-          <Button
-            onClick={() =>
-              navigate('/create-service')
-            }
-            className="bg-blue-600 hover:bg-blue-700 rounded-full"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Publicar servicio
-          </Button>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => navigate('/analitica')}
+              className="rounded-full"
+            >
+              <BarChart3 className="h-4 w-4 mr-2" />
+              Analítica
+            </Button>
+            <Button
+              onClick={() =>
+                navigate('/create-service')
+              }
+              className="bg-blue-600 hover:bg-blue-700 rounded-full"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Publicar servicio
+            </Button>
+          </div>
 
         </div>
 
@@ -376,11 +373,7 @@ export function AccesorDashboard() {
               </p>
 
               <p className="text-3xl font-bold">
-                {
-                  services.filter(
-                    isActiveService
-                  ).length
-                }
+                {bookings.filter(isPendingBooking).length}
               </p>
             </CardContent>
           </Card>
@@ -392,11 +385,7 @@ export function AccesorDashboard() {
               </p>
 
               <p className="text-3xl font-bold">
-                {
-                  services.filter(
-                    isPendingService
-                  ).length
-                }
+                {bookings.length}
               </p>
             </CardContent>
           </Card>
@@ -439,7 +428,9 @@ export function AccesorDashboard() {
                           ? service.imageUrls
                           : service.images?.length
                           ? service.images
-                          : [service.imageUrl]
+                          : service.imageUrl
+                          ? [service.imageUrl]
+                          : []
                       }
                       alt={service.businessName || service.title || 'Servicio'}
                       className="h-48 w-full"
@@ -480,7 +471,7 @@ export function AccesorDashboard() {
                           size="sm"
                           onClick={() =>
                             navigate(
-                              `/booking/${service.id}`
+                              `/booking-detail/${getBusinessId(service)}`
                             )
                           }
                         >
