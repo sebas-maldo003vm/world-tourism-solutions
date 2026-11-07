@@ -25,6 +25,7 @@ type ViewMode = 'split' | 'list' | 'map';
 const DESKTOP_QUERY = '(min-width: 1024px)';
 const SEARCH_DEBOUNCE_MS = 600;
 const MAX_SEARCH_ATTRIBUTION = 40;
+//const [viewMode, setViewMode] = useState<ViewMode>(resolveInitialViewMode);
 
 const VIEW_OPTIONS: { id: ViewMode; label: string; icon: LucideIcon }[] = [
   { id: 'split', label: 'Dividida', icon: Columns2 },
@@ -34,6 +35,13 @@ const VIEW_OPTIONS: { id: ViewMode; label: string; icon: LucideIcon }[] = [
 
 function resolveInitialViewMode(): ViewMode {
   if (typeof window === 'undefined') return 'split';
+
+  const saved = sessionStorage.getItem('catalog-view-mode');
+
+  if (saved === 'split' || saved === 'list' || saved === 'map') {
+    return saved;
+  }
+
   return window.matchMedia(DESKTOP_QUERY).matches ? 'split' : 'list';
 }
 
@@ -106,21 +114,28 @@ function CatalogViewToggle({
 
 export function HomeUsuarioLogueado() {
   const navigate = useNavigate();
+
   const [viewMode, setViewMode] = useState<ViewMode>(resolveInitialViewMode);
   const [userPosition, setUserPosition] = useState<UserCoords | null>(null);
   const [services, setServices] = useState<Service[]>([]);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [loading, setLoading] = useState(true);
-const [locationSource, setLocationSource] = useState<LocationSource | null>(null);
+  const [locationSource, setLocationSource] = useState<LocationSource | null>(null);
   const [manualPickerOpen, setManualPickerOpen] = useState(false);
 
+  // Conservar la vista seleccionada al actualizar la página.
+  useEffect(() => {
+    sessionStorage.setItem('catalog-view-mode', viewMode);
+  }, [viewMode]);
 
   useEffect(() => {
     const media = window.matchMedia(DESKTOP_QUERY);
 
     const syncMobileDefault = () => {
       if (!media.matches) {
-        setViewMode((current) => (current === 'split' ? 'list' : current));
+        setViewMode((current) =>
+          current === 'split' ? 'list' : current
+        );
       }
     };
 
