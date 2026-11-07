@@ -131,7 +131,6 @@ public class SecurityConfig {
 		return new BCryptPasswordEncoder();
 	}
 
-<<<<<<< HEAD
 	public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         // Usar patrones de origen permite aceptar tu dominio principal y los previews de Vercel
@@ -151,23 +150,4 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }
-=======
-	@Bean
-	public CorsConfigurationSource corsConfigurationSource() {
-		CorsConfiguration configuration = new CorsConfiguration();
-		configuration.setAllowedOrigins(List.of( 
-                "https://world-tourism-solutions.vercel.app",
-				"http://localhost:3000",
-				"http://localhost:4200",
-				"http://localhost:5173"));
-		configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-		configuration.setAllowedHeaders(List.of("*"));
-		configuration.setAllowCredentials(true);
-		configuration.setExposedHeaders(List.of("Authorization"));
-
-		UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-		source.registerCorsConfiguration("/**", configuration);
-		return source;
-	}
->>>>>>> ae1a504 (Ajustes funcionales del proyecto)
 }
