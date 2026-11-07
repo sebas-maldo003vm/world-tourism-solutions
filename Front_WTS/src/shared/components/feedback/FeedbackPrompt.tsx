@@ -55,12 +55,16 @@ export function FeedbackPrompt({
   const reduceMotion = useReducedMotion();
   const [visible, setVisible] = useState(false);
 
+// COMPROBAR URL DE ENCUESTA
+console.log('URL DE ENCUESTA:', surveyUrl);
+
   useEffect(() => {
     if (!open || readSessionFlag(storageKey)) {
       setVisible(false);
       return;
     }
-
+ // TEMPORAL: permitir mostrar la notificación en cada prueba
+  sessionStorage.removeItem(storageKey);
     const timer = window.setTimeout(() => setVisible(true), reduceMotion ? 0 : 450);
     return () => window.clearTimeout(timer);
   }, [open, reduceMotion, storageKey]);
