@@ -30,15 +30,16 @@ interface FavoritesContextValue {
 
 const FavoritesContext = createContext<FavoritesContextValue | null>(null);
 
-function readAuthUserId(): number | null {
+function readAuthUser() {
   const token = localStorage.getItem('token');
   const raw = localStorage.getItem('user');
+
   if (!token || !raw) {
     return null;
   }
+
   try {
-    const id = Number(JSON.parse(raw).id);
-    return Number.isFinite(id) ? id : null;
+    return JSON.parse(raw);
   } catch {
     return null;
   }
@@ -46,7 +47,11 @@ function readAuthUserId(): number | null {
 
 export function FavoritesProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
-  const [authUserId, setAuthUserId] = useState<number | null>(() => readAuthUserId());
+
+  const [authUserId, setAuthUserId] = useState<number | null>(
+    () => Number(readAuthUser()?.id) || null
+  );
+
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -54,11 +59,14 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
   const clearFavorites = useCallback(() => {
     setFavorites([]);
     setFavoriteIds(new Set());
+    setLoading(false);
   }, []);
 
   const refreshFavorites = useCallback(async () => {
-    const userId = readAuthUserId();
-    if (userId == null) {
+    const user = readAuthUser();
+
+    // Solo los usuarios normales pueden consultar favoritos.
+    if (!user || user.role !== 'USER') {
       clearFavorites();
       return;
     }
@@ -70,7 +78,9 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       const items = response.data;
 
       setFavorites(items);
-      setFavoriteIds(new Set(items.map((item) => item.business.id)));
+      setFavoriteIds(
+        new Set(items.map((item) => item.business.id))
+      );
     } catch (error) {
       console.error('Error cargando favoritos', error);
       clearFavorites();
@@ -81,13 +91,21 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const syncAuth = () => {
-      const nextId = readAuthUserId();
+      const user = readAuthUser();
+      const nextId = user ? Number(user.id) || null : null;
+
       setAuthUserId((current) => {
         if (current !== nextId) {
           clearFavorites();
         }
+
         return nextId;
       });
+
+      // También limpia favoritos si cambia el rol del mismo usuario.
+      if (!user || user.role !== 'USER') {
+        clearFavorites();
+      }
     };
 
     window.addEventListener('storage', syncAuth);
@@ -100,8 +118,15 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
   }, [clearFavorites]);
 
   useEffect(() => {
+    const user = readAuthUser();
+
+    if (user?.role !== 'USER') {
+      clearFavorites();
+      return;
+    }
+
     refreshFavorites();
-  }, [authUserId, refreshFavorites]);
+  }, [authUserId, refreshFavorites, clearFavorites]);
 
   const isFavorite = useCallback(
     (businessId: number | string) => favoriteIds.has(Number(businessId)),
@@ -110,8 +135,14 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
 
   const toggleFavorite = useCallback(
     async (businessId: number | string) => {
-      if (readAuthUserId() == null) {
+      const user = readAuthUser();
+
+      if (!user) {
         navigate('/login');
+        return;
+      }
+
+      if (user.role !== 'USER') {
         return;
       }
 
@@ -120,16 +151,19 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       try {
         if (isFavorite(id)) {
           await favoritesApi.remove(id);
+
           setFavoriteIds((current) => {
             const next = new Set(current);
             next.delete(id);
             return next;
           });
+
           setFavorites((current) =>
             current.filter((item) => item.business.id !== id)
           );
         } else {
           const response = await favoritesApi.add(id);
+
           setFavoriteIds((current) => new Set(current).add(id));
           setFavorites((current) => [response.data, ...current]);
         }
@@ -150,7 +184,14 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       refreshFavorites,
       clearFavorites,
     }),
-    [favorites, loading, isFavorite, toggleFavorite, refreshFavorites, clearFavorites]
+    [
+      favorites,
+      loading,
+      isFavorite,
+      toggleFavorite,
+      refreshFavorites,
+      clearFavorites,
+    ]
   );
 
   return (
