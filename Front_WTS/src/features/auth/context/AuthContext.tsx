@@ -62,9 +62,19 @@ export function normalizeAuthUser(raw: unknown): AuthUser | null {
 
 function readStoredUser(): AuthUser | null {
   try {
+    const token = localStorage.getItem('token');
+
+    if (!isJwtValid(token)) {
+      localStorage.removeItem('token');
+      localStorage.removeItem(USER_KEY);
+      localStorage.removeItem('role');
+      return null;
+    }
+
     const raw = localStorage.getItem(USER_KEY);
     return raw ? normalizeAuthUser(JSON.parse(raw)) : null;
   } catch {
+    localStorage.removeItem(USER_KEY);
     return null;
   }
 }
