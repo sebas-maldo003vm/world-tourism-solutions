@@ -19,13 +19,14 @@ import { Chat } from '@/features/chat/pages/Chat';
 import { AdminDashboard } from '@/features/admin/pages/AdminDashboard';
 import { NotFound } from '@/features/common/pages/NotFound';
 import { ProtectedRoute } from '@/app/routes/ProtectedRoute';
+import { IndexRoute } from '@/app/routes/IndexRoute';
 
 export const router = createBrowserRouter([
   {
     path: '/',
     Component: Layout,
     children: [
-      { index: true, Component: Home },
+      { index: true, Component: IndexRoute  },
       { path: 'login', Component: Login },
       { path: 'register', Component: Register },
       { path: 'forgot-password', Component: ForgotPassword },
