@@ -25,30 +25,6 @@ type FeedbackPromptProps = {
   title?: string;
 };
 
-function shouldShowFeedback(key: string): boolean {
-  try {
-    const lastShown = sessionStorage.getItem(key);
-
-    // Primera aparición: siempre mostrar.
-    if (!lastShown) {
-      return true;
-    }
-
-    // Próximas apariciones: probabilidad del 30 %.
-    return Math.random() < 0.3;
-  } catch {
-    return true;
-  }
-}
-
-function writeSessionFlag(key: string) {
-  try {
-    sessionStorage.setItem(key, 'true');
-  } catch {
-    // Storage can be blocked.
-  }
-}
-
 export function FeedbackPrompt({
   open,
   storageKey,
@@ -59,22 +35,28 @@ export function FeedbackPrompt({
   const reduceMotion = useReducedMotion();
   const [visible, setVisible] = useState(false);
 
-// COMPROBAR URL DE ENCUESTA
-console.log('URL DE ENCUESTA:', surveyUrl);
-
   useEffect(() => {
-    if (!open || !shouldShowFeedback(storageKey)) {
+    console.log('FEEDBACK DEBUG:', {
+      open,
+      storageKey,
+      surveyUrl,
+      reduceMotion,
+    });
+
+    if (!open) {
       setVisible(false);
       return;
     }
- // TEMPORAL: permitir mostrar la notificación en cada prueba
-  sessionStorage.removeItem(storageKey);
-    const timer = window.setTimeout(() => setVisible(true), reduceMotion ? 0 : 450);
+
+    const timer = window.setTimeout(() => {
+      console.log('MOSTRANDO NOTIFICACIÓN');
+      setVisible(true);
+    }, reduceMotion ? 0 : 450);
+
     return () => window.clearTimeout(timer);
   }, [open, reduceMotion, storageKey]);
 
   const dismiss = () => {
-    writeSessionFlag(storageKey);
     setVisible(false);
   };
 
