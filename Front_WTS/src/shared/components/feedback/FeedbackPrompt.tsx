@@ -66,6 +66,9 @@ export function FeedbackPrompt({
   const reduceMotion = useReducedMotion();
   const [visible, setVisible] = useState(false);
 
+// COMPROBAR URL DE ENCUESTA
+console.log('URL DE ENCUESTA:', surveyUrl);
+
   useEffect(() => {
     if (!open || !shouldShowFeedback(storageKey)) {
       setVisible(false);
