@@ -42,6 +42,7 @@ function shouldShowFeedback(key: string): boolean {
     }
 
     // Próximas visitas: probabilidad del 30 %.
+    
     return Math.random() < 0.3;
   } catch {
     return true;
