@@ -42,7 +42,6 @@ function shouldShowFeedback(key: string): boolean {
     }
 
     // Próximas visitas: probabilidad del 30 %.
-    
     return Math.random() < 0.3;
   } catch {
     return true;
@@ -66,9 +65,6 @@ export function FeedbackPrompt({
   const titleId = useId();
   const reduceMotion = useReducedMotion();
   const [visible, setVisible] = useState(false);
-
-// COMPROBAR URL DE ENCUESTA
-console.log('URL DE ENCUESTA:', surveyUrl);
 
   useEffect(() => {
     if (!open || !shouldShowFeedback(storageKey)) {
