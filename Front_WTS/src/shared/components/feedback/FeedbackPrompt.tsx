@@ -25,6 +25,37 @@ type FeedbackPromptProps = {
   title?: string;
 };
 
+function shouldShowFeedback(key: string): boolean {
+  try {
+    // Evitar mostrar varias veces durante la misma sesión.
+    if (sessionStorage.getItem(key) === 'true') {
+      return false;
+    }
+
+    const probabilityKey = `${key}_probability`;
+    const alreadyEvaluated = sessionStorage.getItem(probabilityKey);
+
+    // Primera aparición: siempre mostrar.
+    if (!alreadyEvaluated) {
+      sessionStorage.setItem(probabilityKey, 'true');
+      return true;
+    }
+
+    // Próximas visitas: probabilidad del 30 %.
+    return Math.random() < 0.3;
+  } catch {
+    return true;
+  }
+}
+
+function writeSessionFlag(key: string) {
+  try {
+    sessionStorage.setItem(key, 'true');
+  } catch {
+    // Storage can be blocked.
+  }
+}
+
 export function FeedbackPrompt({
   open,
   storageKey,
@@ -36,27 +67,21 @@ export function FeedbackPrompt({
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    console.log('FEEDBACK DEBUG:', {
-      open,
-      storageKey,
-      surveyUrl,
-      reduceMotion,
-    });
-
-    if (!open) {
+    if (!open || !shouldShowFeedback(storageKey)) {
       setVisible(false);
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      console.log('MOSTRANDO NOTIFICACIÓN');
-      setVisible(true);
-    }, reduceMotion ? 0 : 450);
+    const timer = window.setTimeout(
+      () => setVisible(true),
+      reduceMotion ? 0 : 450
+    );
 
     return () => window.clearTimeout(timer);
   }, [open, reduceMotion, storageKey]);
 
   const dismiss = () => {
+    writeSessionFlag(storageKey);
     setVisible(false);
   };
 
