@@ -131,6 +131,7 @@ public class SecurityConfig {
 		return new BCryptPasswordEncoder();
 	}
 
+	@Bean
 	public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         // Usar patrones de origen permite aceptar tu dominio principal y los previews de Vercel
