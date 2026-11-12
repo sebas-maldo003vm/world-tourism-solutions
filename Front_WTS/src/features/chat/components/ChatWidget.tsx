@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Bot, X, Headphones } from 'lucide-react';
+import { Send, Bot, X, Headphones, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { isJwtValid } from '@/app/routes/ProtectedRoute';
 import { chatApi } from '@/features/chat/services/chatApi';
@@ -37,9 +37,11 @@ function canUseChatbot(): boolean {
 function SuggestionChips({
   chips,
   onSelect,
+  disabled,
 }: {
   chips: SuggestionChip[];
   onSelect: (chip: SuggestionChip) => void;
+  disabled: boolean;
 }) {
   return (
     <div className="flex flex-wrap gap-1.5 px-1 pb-1">
@@ -47,8 +49,9 @@ function SuggestionChips({
         <button
           key={chip.id}
           type="button"
+          disabled={disabled}
           onClick={() => onSelect(chip)}
-          className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+          className={`rounded-full border px-2.5 py-1 text-xs font-medium transition disabled:opacity-50 ${
             chip.escalate
               ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
               : 'border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50'
@@ -85,6 +88,7 @@ export function ChatWidget() {
     escalateOpen,
     setEscalateOpen,
     draftSupportMessage,
+    loading,
   } = useEphemeralChatbot();
 
   useEffect(() => {
@@ -145,8 +149,8 @@ export function ChatWidget() {
             <div className="flex items-center gap-2">
               <Bot className="h-5 w-5 text-sky-300" />
               <div>
-                <p className="text-sm font-semibold">Asistente Virtual</p>
-                <p className="text-xs text-slate-300">Solo en esta sesión · sin guardar en servidor</p>
+                <p className="text-sm font-semibold">Asistente Virtual (Gemini)</p>
+                <p className="text-xs text-slate-300">Inteligencia Artificial Activa</p>
               </div>
             </div>
             <button
@@ -184,11 +188,19 @@ export function ChatWidget() {
                 </div>
               </div>
             ))}
+            {loading && (
+              <div className="flex justify-start">
+                <div className="flex items-center gap-2 rounded-2xl border border-sky-100 bg-white px-3 py-2 text-sm text-slate-500 shadow-sm">
+                  <Loader2 className="h-4 w-4 animate-spin text-sky-600" />
+                  <span>Pensando respuesta...</span>
+                </div>
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
 
           <div className="border-t border-slate-100 bg-slate-50/80 px-3 pt-2">
-            <SuggestionChips chips={suggestions} onSelect={selectSuggestion} />
+            <SuggestionChips chips={suggestions} onSelect={selectSuggestion} disabled={loading} />
           </div>
 
           <form
@@ -206,16 +218,17 @@ export function ChatWidget() {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              disabled={loading}
               placeholder="Escribe tu consulta..."
-              className="flex-1 rounded-full border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-400"
+              className="flex-1 rounded-full border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-400 disabled:opacity-50"
             />
             <button
               type="submit"
-              disabled={!input.trim()}
+              disabled={!input.trim() || loading}
               className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-sky-600 text-white transition hover:bg-sky-700 disabled:opacity-50"
               aria-label="Enviar"
             >
-              <Send className="h-4 w-4" />
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </button>
           </form>
         </div>

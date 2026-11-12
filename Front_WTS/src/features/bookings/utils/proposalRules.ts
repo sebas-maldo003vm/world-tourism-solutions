@@ -5,15 +5,28 @@ export const PROPOSAL_QUOTAS = [
 ] as const;
 
 export type ProposalBucket = (typeof PROPOSAL_QUOTAS)[number]['category'];
-
 export function canonicalProposalCategory(category?: string | null): ProposalBucket | null {
   const value = (category ?? '').trim().toUpperCase();
-  if (value === 'HOSPEDAJE' || value === 'ALOJAMIENTO') return 'HOSPEDAJE';
-  if (value === 'RESTAURANTE' || value === 'RESTAURANTES') return 'RESTAURANTE';
-  if (value === 'ACTIVIDAD' || value === 'ACTIVIDADES') return 'ACTIVIDAD';
+
+  if (value === 'HOSPEDAJE' || value === 'ALOJAMIENTO') {
+    return 'HOSPEDAJE';
+  }
+
+  if (
+    value === 'RESTAURANTE' ||
+    value === 'RESTAURANTES' ||
+    value === 'GASTRONOMIA' ||
+    value === 'GASTRONOMÍA'
+  ) {
+    return 'RESTAURANTE';
+  }
+
+  if (value === 'ACTIVIDAD' || value === 'ACTIVIDADES') {
+    return 'ACTIVIDAD';
+  }
+
   return null;
 }
-
 export function proposalShortageMessage(counts: Record<ProposalBucket, number>): string | null {
   const parts: string[] = [];
   for (const quota of PROPOSAL_QUOTAS) {
