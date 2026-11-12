@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { X } from 'lucide-react';
 
-/** Session flags so each flow asks for feedback at most once per browser session. */
 export const FEEDBACK_STORAGE_KEYS = {
   itinerary: 'has_voted_itinerary',
   booking: 'has_voted_booking',
@@ -20,20 +19,32 @@ export function getFeedbackFormUrl(): string {
 }
 
 type FeedbackPromptProps = {
-  /** Show the card after the related action finishes successfully. */
   open: boolean;
-  /** `sessionStorage` key, for example `has_voted_itinerary`. */
   storageKey: FeedbackStorageKey;
-  /** Google Forms URL. Falls back to `VITE_FEEDBACK_FORM_URL`. */
   surveyUrl?: string;
   title?: string;
 };
 
-function readSessionFlag(key: string): boolean {
+function shouldShowFeedback(key: string): boolean {
   try {
-    return sessionStorage.getItem(key) === 'true';
+    // Evitar mostrar varias veces durante la misma sesión.
+    if (sessionStorage.getItem(key) === 'true') {
+      return false;
+    }
+
+    const probabilityKey = `${key}_probability`;
+    const alreadyEvaluated = sessionStorage.getItem(probabilityKey);
+
+    // Primera aparición: siempre mostrar.
+    if (!alreadyEvaluated) {
+      sessionStorage.setItem(probabilityKey, 'true');
+      return true;
+    }
+
+    // Próximas visitas: probabilidad del 30 %.
+    return Math.random() < 0.3;
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -41,7 +52,7 @@ function writeSessionFlag(key: string) {
   try {
     sessionStorage.setItem(key, 'true');
   } catch {
-    // Storage can be blocked; the card still closes for this view.
+    // Storage can be blocked.
   }
 }
 
@@ -56,12 +67,16 @@ export function FeedbackPrompt({
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (!open || readSessionFlag(storageKey)) {
+    if (!open || !shouldShowFeedback(storageKey)) {
       setVisible(false);
       return;
     }
 
-    const timer = window.setTimeout(() => setVisible(true), reduceMotion ? 0 : 450);
+    const timer = window.setTimeout(
+      () => setVisible(true),
+      reduceMotion ? 0 : 450
+    );
+
     return () => window.clearTimeout(timer);
   }, [open, reduceMotion, storageKey]);
 
@@ -82,14 +97,21 @@ export function FeedbackPrompt({
           initial={reduceMotion ? false : { opacity: 0, y: 20, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.98 }}
-          transition={{ duration: reduceMotion ? 0.01 : 0.35, ease: [0.22, 1, 0.36, 1] }}
+          transition={{
+            duration: reduceMotion ? 0.01 : 0.35,
+            ease: [0.22, 1, 0.36, 1],
+          }}
           className="fixed bottom-24 left-4 right-4 z-50 w-auto max-w-sm sm:bottom-6 sm:left-6 sm:right-auto"
         >
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xl shadow-slate-900/10">
             <div className="flex items-start gap-3">
-              <p id={titleId} className="min-w-0 flex-1 text-sm font-medium leading-snug text-slate-800">
+              <p
+                id={titleId}
+                className="min-w-0 flex-1 text-sm font-medium leading-snug text-slate-800"
+              >
                 {title}
               </p>
+
               <button
                 type="button"
                 onClick={dismiss}
@@ -108,6 +130,7 @@ export function FeedbackPrompt({
               >
                 Cerrar
               </button>
+
               <a
                 href={surveyUrl || undefined}
                 target="_blank"
@@ -118,6 +141,7 @@ export function FeedbackPrompt({
                     event.preventDefault();
                     return;
                   }
+
                   dismiss();
                 }}
                 className={`inline-flex items-center justify-center rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 ${
@@ -131,6 +155,6 @@ export function FeedbackPrompt({
         </motion.aside>
       )}
     </AnimatePresence>,
-    document.body,
+    document.body
   );
 }

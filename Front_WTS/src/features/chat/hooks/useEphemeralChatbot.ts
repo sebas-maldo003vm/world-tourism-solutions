@@ -6,8 +6,13 @@ import {
   useState,
   type FormEvent,
 } from 'react';
+import { chatApi } from '@/features/chat/services/chatApi';
+import { toast } from 'sonner';
 
-const STORAGE_KEY = 'wts_ephemeral_chatbot';
+const STORAGE_KEY = 'wts_ephemeral_chatbot_msgs';
+const TIMESTAMP_KEY = 'wts_ephemeral_chatbot_time';
+const SESSION_EXPIRATION_MS = 15 * 60 * 1000; // 15 minutos
+
 export const ADVISOR_CHIP = 'Hablar con un asesor';
 
 export type EphemeralRole = 'user' | 'bot';
@@ -22,98 +27,24 @@ export interface EphemeralMessage {
 export interface SuggestionChip {
   id: string;
   label: string;
-  /** If true, triggers advisor escalation instead of sending a bot reply */
   escalate?: boolean;
-  /** Intent key used to drive dynamic follow-up chips */
   intent?: string;
 }
 
 interface ChatState {
   messages: EphemeralMessage[];
-  activeIntent: string | null;
 }
 
 type ChatAction =
-  | { type: 'HYDRATE'; messages: EphemeralMessage[]; activeIntent: string | null }
-  | { type: 'APPEND'; user: EphemeralMessage; bot: EphemeralMessage; intent: string | null }
+  | { type: 'HYDRATE'; messages: EphemeralMessage[] }
+  | { type: 'APPEND_USER'; message: EphemeralMessage }
+  | { type: 'APPEND_BOT'; message: EphemeralMessage }
   | { type: 'RESET' };
 
-interface FaqEntry {
-  intent: string;
-  keywords: string[];
-  chipLabel: string;
-  answer: string;
-  followUps: string[];
-}
-
-const FAQ: FaqEntry[] = [
-  {
-    intent: 'reservar',
-    keywords: ['reservar', 'reserva', 'booking', 'agendar', 'cómo reservo', 'como reservo'],
-    chipLabel: 'Cómo reservar',
-    answer:
-      'Para reservar: abre el catálogo, elige un negocio y pulsa Reservar. ' +
-      'Puedes revisar tus reservas e itinerario desde el menú superior.',
-    followUps: ['Ver itinerarios', 'Horarios', 'Cancelaciones'],
-  },
-  {
-    intent: 'itinerarios',
-    keywords: ['itinerario', 'itinerarios', 'viaje', 'plan', 'agenda'],
-    chipLabel: 'Ver itinerarios',
-    answer:
-      'Tu itinerario agrupa las reservas confirmadas por ciudad. ' +
-      'Accede desde el icono de calendario en la barra superior.',
-    followUps: ['Cómo reservar', 'Horarios'],
-  },
-  {
-    intent: 'horarios',
-    keywords: ['horario', 'horarios', 'abre', 'apertura', 'cierre'],
-    chipLabel: 'Horarios',
-    answer:
-      'Los horarios los publica cada proveedor en la ficha del servicio o negocio. ' +
-      'Abre el catálogo, entra al perfil y revisa la información de disponibilidad.',
-    followUps: ['Cómo reservar', 'Ver itinerarios'],
-  },
-  {
-    intent: 'cancelaciones',
-    keywords: ['cancelar', 'cancelación', 'cancelacion', 'anular'],
-    chipLabel: 'Cancelaciones',
-    answer:
-      'Para gestionar o cancelar una reserva, ve a tu Perfil o Itinerario y abre el detalle. ' +
-      'Si ya fue aprobada, un asesor humano puede ayudarte.',
-    followUps: ['Hablar con un asesor', 'Cómo reservar'],
-  },
-  {
-    intent: 'favoritos',
-    keywords: ['favorito', 'favoritos', 'guardar'],
-    chipLabel: 'Favoritos',
-    answer:
-      'Puedes marcar negocios como favoritos desde las tarjetas del catálogo. Los verás en tu perfil.',
-    followUps: ['Cómo reservar', 'Ver itinerarios'],
-  },
-  {
-    intent: 'pagos',
-    keywords: ['pago', 'pagar', 'precio', 'costo', 'tarifa'],
-    chipLabel: 'Pagos y precios',
-    answer:
-      'Los precios se muestran en cada servicio/negocio. El cobro y políticas específicas las define el proveedor.',
-    followUps: ['Cómo reservar', 'Hablar con un asesor'],
-  },
-  {
-    intent: 'bienvenida',
-    keywords: ['hola', 'buenas', 'ayuda', 'help', 'asistente'],
-    chipLabel: 'Ayuda general',
-    answer:
-      '¡Hola! Soy el asistente virtual de World Tourism Solutions. ' +
-      'Puedo orientarte sobre reservas, itinerarios u horarios. Si necesitas más, habla con un asesor.',
-    followUps: ['Cómo reservar', 'Ver itinerarios', 'Horarios'],
-  },
-];
-
 const DEFAULT_CHIPS: SuggestionChip[] = [
-  { id: 'reservar', label: 'Cómo reservar', intent: 'reservar' },
-  { id: 'itinerarios', label: 'Ver itinerarios', intent: 'itinerarios' },
-  { id: 'horarios', label: 'Horarios', intent: 'horarios' },
+  { id: 'reservar', label: 'Cómo reservar' },
+  { id: 'itinerarios', label: 'Ver itinerarios' },
+  { id: 'horarios', label: 'Horarios' },
 ];
 
 const WELCOME: EphemeralMessage = {
@@ -129,35 +60,21 @@ function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function matchFaq(text: string): FaqEntry | null {
-  const normalized = text.toLowerCase().trim();
-  for (const entry of FAQ) {
-    if (entry.keywords.some((k) => normalized.includes(k))) {
-      return entry;
-    }
-  }
-  const byLabel = FAQ.find((e) => e.chipLabel.toLowerCase() === normalized);
-  return byLabel ?? null;
-}
-
-function fallbackReply(): string {
-  return (
-    'No tengo una respuesta automática para eso. Prueba una sugerencia o pulsa «Hablar con un asesor» ' +
-    'para abrir un ticket con un agente humano.'
-  );
-}
-
 function reduceChat(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case 'HYDRATE':
-      return { messages: action.messages, activeIntent: action.activeIntent };
-    case 'APPEND':
+      return { messages: action.messages };
+    case 'APPEND_USER':
       return {
-        messages: [...state.messages, action.user, action.bot],
-        activeIntent: action.intent,
+        ...state,
+        messages: [...state.messages, action.message],
+      };
+    case 'APPEND_BOT':
+      return {
+        messages: [...state.messages, action.message],
       };
     case 'RESET':
-      return { messages: [WELCOME], activeIntent: null };
+      return { messages: [WELCOME] };
     default:
       return state;
   }
@@ -165,86 +82,138 @@ function reduceChat(state: ChatState, action: ChatAction): ChatState {
 
 function loadFromSession(): ChatState {
   try {
+    const rawTime = sessionStorage.getItem(TIMESTAMP_KEY);
+    if (rawTime) {
+      const lastActivity = parseInt(rawTime, 10);
+      const now = Date.now();
+      if (now - lastActivity > SESSION_EXPIRATION_MS) {
+        sessionStorage.removeItem(STORAGE_KEY);
+        sessionStorage.removeItem(TIMESTAMP_KEY);
+        return { messages: [WELCOME] };
+      }
+    }
+
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      return { messages: [WELCOME], activeIntent: null };
+      return { messages: [WELCOME] };
     }
     const parsed = JSON.parse(raw) as Partial<ChatState>;
     if (!Array.isArray(parsed.messages) || parsed.messages.length === 0) {
-      return { messages: [WELCOME], activeIntent: null };
+      return { messages: [WELCOME] };
     }
-    return {
-      messages: parsed.messages,
-      activeIntent: parsed.activeIntent ?? null,
-    };
+    return { messages: parsed.messages };
   } catch {
-    return { messages: [WELCOME], activeIntent: null };
+    return { messages: [WELCOME] };
   }
 }
 
 function persist(state: ChatState) {
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    sessionStorage.setItem(TIMESTAMP_KEY, Date.now().toString());
   } catch {
     // sessionStorage puede fallar en modo privado estricto
   }
-}
-
-function chipsForIntent(intent: string | null): SuggestionChip[] {
-  const entry = intent ? FAQ.find((f) => f.intent === intent) : null;
-  const labels = entry?.followUps ?? DEFAULT_CHIPS.map((c) => c.label);
-  const dynamic: SuggestionChip[] = labels
-    .filter((label) => label !== ADVISOR_CHIP)
-    .map((label) => {
-      const faq = FAQ.find((f) => f.chipLabel === label);
-      return {
-        id: faq?.intent ?? label.toLowerCase().replace(/\s+/g, '-'),
-        label,
-        intent: faq?.intent,
-      };
-    });
-
-  return [
-    ...dynamic,
-    { id: 'advisor', label: ADVISOR_CHIP, escalate: true },
-  ];
 }
 
 export function useEphemeralChatbot() {
   const [state, dispatch] = useReducer(reduceChat, undefined, loadFromSession);
   const [input, setInput] = useState('');
   const [escalateOpen, setEscalateOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [conversationId, setConversationId] = useState<number | null>(null);
+
+  // NUEVO: Limpiar y reiniciar el chat automáticamente al detectar login o cambio de token en localStorage
+  useEffect(() => {
+    const handleLoginOrStorageChange = () => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        // Si hay token activo (inicio de sesión), forzamos el reseteo del chat e hilo
+        dispatch({ type: 'RESET' });
+        setConversationId(null);
+        sessionStorage.removeItem(STORAGE_KEY);
+        sessionStorage.removeItem(TIMESTAMP_KEY);
+      }
+    };
+
+    // Ejecutar al montar por si acaba de iniciar sesión
+    handleLoginOrStorageChange();
+
+    // Escuchar cambios de almacenamiento por si inicia sesión en otra pestaña o se actualiza el token
+    window.addEventListener('storage', handleLoginOrStorageChange);
+    return () => window.removeEventListener('storage', handleLoginOrStorageChange);
+  }, []);
 
   useEffect(() => {
     persist(state);
   }, [state]);
 
-  const suggestions = useMemo(
-    () => chipsForIntent(state.activeIntent),
-    [state.activeIntent],
-  );
-
-  const sendText = useCallback((raw: string) => {
-    const content = raw.trim();
-    if (!content) return;
-
-    if (content.toLowerCase() === ADVISOR_CHIP.toLowerCase()) {
-      setEscalateOpen(true);
-      return;
-    }
-
-    const matched = matchFaq(content);
-    const reply = matched?.answer ?? fallbackReply();
-    const intent = matched?.intent ?? null;
-    const now = new Date().toISOString();
-
-    dispatch({
-      type: 'APPEND',
-      user: { id: createId(), role: 'user', content, sentAt: now },
-      bot: { id: createId(), role: 'bot', content: reply, sentAt: now },
-      intent,
-    });
+  const suggestions = useMemo(() => {
+    return [
+      ...DEFAULT_CHIPS,
+      { id: 'advisor', label: ADVISOR_CHIP, escalate: true },
+    ];
   }, []);
+
+  const sendText = useCallback(
+    async (raw: string) => {
+      const content = raw.trim();
+      if (!content || loading) return;
+
+      if (content.toLowerCase() === ADVISOR_CHIP.toLowerCase()) {
+        setEscalateOpen(true);
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const userMessage: EphemeralMessage = {
+        id: createId(),
+        role: 'user',
+        content,
+        sentAt: now,
+      };
+
+      dispatch({ type: 'APPEND_USER', message: userMessage });
+      setLoading(true);
+
+      try {
+        const response = await chatApi.sendBotMessage(
+          content,
+          conversationId ?? undefined
+        );
+
+        const data = response.data;
+        
+        if (data.conversationId) {
+          setConversationId(data.conversationId);
+        }
+
+        const botContent = data.reply || 'Respuesta generada por el asistente.';
+        const botMessage: EphemeralMessage = {
+          id: createId(),
+          role: 'bot',
+          content: botContent,
+          sentAt: new Date().toISOString(),
+        };
+
+        dispatch({ type: 'APPEND_BOT', message: botMessage });
+      } catch (error) {
+        console.error('Error al conectar con el backend de Gemini:', error);
+        toast.error('No se pudo obtener respuesta del asistente virtual.');
+        
+        const errorMessage: EphemeralMessage = {
+          id: createId(),
+          role: 'bot',
+          content: 'Disculpa, tuve un problema al procesar tu solicitud con el servicio cognitivo.',
+          sentAt: new Date().toISOString(),
+        };
+        dispatch({ type: 'APPEND_BOT', message: errorMessage });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loading, conversationId]
+  );
 
   const sendMessage = useCallback(
     (e?: FormEvent) => {
@@ -254,7 +223,7 @@ export function useEphemeralChatbot() {
       setInput('');
       sendText(content);
     },
-    [input, sendText],
+    [input, sendText]
   );
 
   const selectSuggestion = useCallback(
@@ -265,7 +234,7 @@ export function useEphemeralChatbot() {
       }
       sendText(chip.label);
     },
-    [sendText],
+    [sendText]
   );
 
   const requestHumanAdvisor = useCallback(() => {
@@ -274,10 +243,11 @@ export function useEphemeralChatbot() {
 
   const resetChat = useCallback(() => {
     dispatch({ type: 'RESET' });
+    setConversationId(null);
     sessionStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(TIMESTAMP_KEY);
   }, []);
 
-  /** Últimos mensajes del usuario para prellenar el ticket de soporte */
   const draftSupportMessage = useMemo(() => {
     const userMsgs = state.messages.filter((m) => m.role === 'user').map((m) => m.content);
     if (userMsgs.length === 0) {
@@ -299,5 +269,6 @@ export function useEphemeralChatbot() {
     escalateOpen,
     setEscalateOpen,
     draftSupportMessage,
+    loading,
   };
 }
