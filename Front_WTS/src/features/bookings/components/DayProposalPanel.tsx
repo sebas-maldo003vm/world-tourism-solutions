@@ -72,6 +72,14 @@ function emptyCounts(): Record<ProposalBucket, number> {
   return { HOSPEDAJE: 0, RESTAURANTE: 0, ACTIVIDAD: 0 };
 }
 
+function normalizeCityKey(city: string) {
+  return city
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
 export function DayProposalPanel() {
   const [date, setDate] = useState(todayIso);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
@@ -125,7 +133,8 @@ export function DayProposalPanel() {
         if (cancelled) return;
         const rows = Array.isArray(response.data) ? response.data : [];
         setProposals(rows);
-        setSelectedId(rows[0]?.id ?? null);
+        const visibleRows = rows.filter((r) => r.status !== 'CANCELLED');
+        setSelectedId(visibleRows[0]?.id ?? rows[0]?.id ?? null);
       })
       .catch((loadError: unknown) => {
         if (cancelled) return;
@@ -145,10 +154,19 @@ export function DayProposalPanel() {
     () => Array.from(new Set(catalog.map((item) => item.category).filter(Boolean) as string[])),
     [catalog],
   );
-  const locations = useMemo(
-    () => Array.from(new Set(catalog.map((item) => item.city).filter(Boolean) as string[])),
-    [catalog],
-  );
+
+  const locations = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of catalog) {
+      if (item.city) {
+        const key = normalizeCityKey(item.city);
+        if (!map.has(key)) {
+          map.set(key, item.city.trim());
+        }
+      }
+    }
+    return Array.from(map.values());
+  }, [catalog]);
 
   const counts = useMemo(() => {
     const next = emptyCounts();
@@ -179,18 +197,36 @@ export function DayProposalPanel() {
 
   const shortage = catalogLoading ? null : proposalShortageMessage(counts);
   const activeFilters = countActiveFilters(filters);
-  const selected = proposals.find((proposal) => proposal.id === selectedId) ?? null;
+
+  // VALIDACIÓN ESTRICTA: Verifica que haya una ciudad seleccionada real o coordenadas GPS activas.
+  // Ignora explícitamente cadenas vacías, espacios, 'todas las ubicaciones' o 'all'.
+  const hasSelectedLocation = useMemo(() => {
+    const loc = filters.location ? filters.location.trim().toLowerCase() : '';
+    const isInvalidCity = !loc || loc === '' || loc === 'todas las ubicaciones' || loc === 'all';
+    
+    // Es válido si hay una ciudad específica o si el usuario activó "Usar mi ubicación" (userPosition)
+    return !isInvalidCity || Boolean(userPosition);
+  }, [filters.location, userPosition]);
+
+  const visibleProposals = useMemo(
+    () => proposals.filter((proposal) => proposal.status !== 'CANCELLED'),
+    [proposals],
+  );
+
+  const selected = visibleProposals.find((proposal) => proposal.id === selectedId) ?? visibleProposals[0] ?? null;
 
   const replaceProposal = (updated: ItineraryProposal) => {
     setProposals((current) => {
       const exists = current.some((proposal) => proposal.id === updated.id);
-      if (!exists) return [updated, ...current];
-      return current.map((proposal) => (proposal.id === updated.id ? updated : proposal));
+      return exists
+        ? current.map((proposal) => (proposal.id === updated.id ? updated : proposal))
+        : [updated, ...current];
     });
     setSelectedId(updated.id);
   };
 
   const generate = async () => {
+    if (!hasSelectedLocation) return;
     setGenerating(true);
     setError(null);
     try {
@@ -212,7 +248,15 @@ export function DayProposalPanel() {
         action === 'accept'
           ? await itineraryProposalsApi.accept(selected.id)
           : await itineraryProposalsApi.cancel(selected.id);
+      
       replaceProposal(response.data);
+
+      if (action === 'cancel') {
+        const remainingVisible = proposals
+          .map((p) => (p.id === response.data.id ? response.data : p))
+          .filter((p) => p.status !== 'CANCELLED');
+        setSelectedId(remainingVisible[0]?.id ?? null);
+      }
     } catch (actionError: unknown) {
       setError(
         readApiMessage(
@@ -233,8 +277,8 @@ export function DayProposalPanel() {
             Generar día
           </h2>
           <p className="mt-1 max-w-2xl text-sm text-gray-500">
-            Arma una propuesta informativa de 5 lugares: 1 hospedaje, 2 restaurantes y 2 actividades.
-            Aceptarla o cancelarla no crea una reserva ni un pago, y no entra en el calendario de arriba.
+            Arma una propuesta informativa optimizada de 5 lugares: 1 hospedaje, 2 restaurantes y 2 actividades.
+            Selecciona una ciudad o ubicación para calcular la ruta inteligente.
           </p>
         </div>
       </div>
@@ -242,7 +286,7 @@ export function DayProposalPanel() {
       <Card>
         <CardContent className="space-y-5 p-5 sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <label className="block min-w-0 sm:w-56">
+            <label className="block min-w-0 sm:w-64">
               <span className="mb-1.5 block text-sm font-medium text-gray-700">Fecha de la propuesta</span>
               <Input
                 type="date"
@@ -251,31 +295,33 @@ export function DayProposalPanel() {
                 className="rounded-full"
               />
             </label>
-            <div className="relative min-w-0 flex-1">
-              <span className="mb-1.5 block text-sm font-medium text-gray-700">Buscar en el catálogo</span>
-              <Input
-                value={filters.search}
-                onChange={(event) => setFilters({ ...filters, search: event.target.value })}
-                placeholder="Nombre, ciudad o descripción"
-                aria-label="Buscar lugares para la propuesta"
-                className="rounded-full"
-              />
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              className={`rounded-full ${activeFilters > 0 ? 'border-blue-600 text-blue-700' : ''}`}
-              aria-expanded={filtersOpen}
-              onClick={() => setFiltersOpen(true)}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              Filtros
-              {activeFilters > 0 && (
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-xs font-semibold text-white">
-                  {activeFilters}
+
+            <div className="flex-1">
+              <span className="mb-1.5 block text-sm font-medium text-gray-700">Ciudad o Ubicación obligatoria</span>
+              <Button
+                type="button"
+                variant="outline"
+                className={`w-full justify-between rounded-full ${
+                  hasSelectedLocation && filters.location ? 'border-blue-600 text-blue-700 font-medium' : 'text-gray-500'
+                }`}
+                aria-expanded={filtersOpen}
+                onClick={() => setFiltersOpen(true)}
+              >
+                <span className="flex items-center gap-2">
+                  <SlidersHorizontal className="h-4 w-4" />
+                  {hasSelectedLocation && filters.location && filters.location.toLowerCase() !== 'todas las ubicaciones' && filters.location.toLowerCase() !== 'all'
+                    ? `Ciudad: ${filters.location}`
+                    : userPosition
+                    ? 'Ubicación GPS activa'
+                    : 'Seleccionar ciudad o ubicación...'}
                 </span>
-              )}
-            </Button>
+                {activeFilters > 0 && (
+                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-xs font-semibold text-white">
+                    {activeFilters}
+                  </span>
+                )}
+              </Button>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -301,19 +347,24 @@ export function DayProposalPanel() {
 
           {catalogError && <p className="text-sm text-red-600">{catalogError}</p>}
           {shortage && !catalogError && <p className="text-sm text-red-600">{shortage}</p>}
+          {!hasSelectedLocation && (
+            <p className="text-sm font-medium text-amber-600">
+              ⚠️ Debes seleccionar una ciudad específica o configurar una ubicación en los filtros para generar la propuesta optimizada.
+            </p>
+          )}
 
           <div className="flex flex-wrap items-center gap-3">
             <Button
               type="button"
               className="rounded-full bg-blue-600 hover:bg-blue-700"
-              disabled={catalogLoading || generating || Boolean(shortage) || Boolean(catalogError) || !date}
+              disabled={catalogLoading || generating || Boolean(shortage) || Boolean(catalogError) || !date || !hasSelectedLocation}
               onClick={() => void generate()}
             >
               {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               Generar propuesta
             </Button>
             <p className="text-xs text-gray-500">
-              El sorteo elige al azar dentro de cada categoría, sin repetir un lugar.
+              El motor selecciona de forma inteligente y optimizada las mejores opciones por calidad y cercanía geográfica.
             </p>
           </div>
         </CardContent>
@@ -328,7 +379,7 @@ export function DayProposalPanel() {
         ) : selected ? (
           <ProposalResult
             proposal={selected}
-            proposals={proposals}
+            proposals={visibleProposals}
             acting={acting}
             onSelect={setSelectedId}
             onAccept={() => void decide('accept')}
@@ -337,7 +388,7 @@ export function DayProposalPanel() {
         ) : (
           <Card>
             <CardContent className="p-10 text-center text-sm text-gray-500">
-              Todavía no hay una propuesta informativa para esta fecha.
+              Todavía no hay una propuesta informativa activa para esta fecha.
             </CardContent>
           </Card>
         )}
@@ -351,7 +402,16 @@ export function DayProposalPanel() {
         locations={locations}
         userPosition={userPosition}
         onClose={() => setFiltersOpen(false)}
-        onApply={setFilters}
+        onApply={(newFilters) => {
+          // Si el usuario selecciona "Todas las ubicaciones" o lo limpia, aseguramos que location quede vacío
+          const cleanedFilters = {
+            ...newFilters,
+            location: newFilters.location && newFilters.location.toLowerCase() !== 'todas las ubicaciones' && newFilters.location.toLowerCase() !== 'all' 
+              ? newFilters.location 
+              : ''
+          };
+          setFilters(cleanedFilters);
+        }}
         onUserPositionChange={setUserPosition}
       />
     </section>
@@ -389,9 +449,7 @@ function ProposalResult({
             className={`rounded-full px-3 py-1 text-xs font-medium ${
               proposal.status === 'ACCEPTED'
                 ? 'bg-green-100 text-green-700'
-                : proposal.status === 'CANCELLED'
-                  ? 'bg-gray-100 text-gray-600'
-                  : 'bg-amber-100 text-amber-800'
+                : 'bg-amber-100 text-amber-800'
             }`}
           >
             {STATUS_LABEL[proposal.status] ?? proposal.status}
@@ -411,7 +469,7 @@ function ProposalResult({
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
-                Propuesta {proposals.length - index} · {STATUS_LABEL[item.status] ?? item.status}
+                Propuesta {index + 1} · {STATUS_LABEL[item.status] ?? item.status}
               </button>
             ))}
           </div>

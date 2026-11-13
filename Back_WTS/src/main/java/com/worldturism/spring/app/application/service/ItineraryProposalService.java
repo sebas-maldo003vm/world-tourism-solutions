@@ -16,7 +16,6 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
-import java.util.Random;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,7 +50,9 @@ public class ItineraryProposalService {
 				.filter(profile -> ProposalCatalogFilter.matches(profile, request.filters()))
 				.toList();
 
-		List<ProviderProfile> picked = ProposalDraw.draw(eligible, new Random());
+		// CAMBIO CLAVE: Se pasan los filtros en lugar de new Random() para la selección inteligente y determinista
+		List<ProviderProfile> picked = ProposalDraw.draw(eligible, request.filters());
+		
 		Itinerary itinerary = new Itinerary();
 		itinerary.setUser(user);
 		itinerary.setTitle("Propuesta del " + TITLE_DATE.format(request.date()));
