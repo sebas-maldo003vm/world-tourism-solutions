@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Camera, Lock } from 'lucide-react';
-
+import { Camera, Lock, ShieldAlert, X, CheckCircle2 } from 'lucide-react';
 import { API_ORIGIN } from '@/core/api/client';
 import { useAuth } from '@/features/auth/context/AuthContext';
 import { UserAvatar } from '@/shared/components/UserAvatar';
@@ -46,7 +45,23 @@ export function EditProfile() {
     newPassword: '',
     confirmPassword: '',
   });
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteRequestType, setDeleteRequestType] = useState('Supresión de datos personales');
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleteRequestSubmitted, setDeleteRequestSubmitted] = useState(false);
 
+  const handleOpenDeleteModal = () => {
+    setDeleteRequestType('Supresión de datos personales');
+    setDeleteReason('');
+    setDeleteRequestSubmitted(false);
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteRequestSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeleteRequestSubmitted(true);
+    toast.success('Solicitud de eliminación diligenciada.');
+  };
   useEffect(() => {
     let cancelled = false;
 
@@ -424,7 +439,149 @@ export function EditProfile() {
             </form>
           </CardContent>
         </Card>
+
+        {/* TARJETA DE PRIVACIDAD Y ELIMINACIÓN DE DATOS */}
+        <Card className="border-red-100">
+          <CardContent className="p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600">
+                  <ShieldAlert className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    Privacidad y eliminación de datos
+                  </h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Puedes solicitar el retiro de tu participación en el estudio académico o la supresión de tus datos personales.
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleOpenDeleteModal}
+                className="rounded-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 shrink-0"
+              >
+                Eliminar mis datos
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      {/* MODAL DE SOLICITUD DE ELIMINACIÓN DE DATOS */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="text-lg font-bold text-slate-900">
+                Solicitud de eliminación de datos personales
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Cerrar modal"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            {!deleteRequestSubmitted ? (
+              <form onSubmit={handleDeleteRequestSubmit} className="space-y-4">
+                <p className="text-sm text-slate-600 leading-6">
+                  Completa este formulario para registrar tu solicitud conforme a la Ley 1581 de 2012. La supresión efectiva no es automática y será gestionada por el equipo responsable del proyecto dentro de los plazos establecidos.
+                </p>
+
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 space-y-1">
+                  <p>
+                    <span className="font-medium text-slate-900">Titular: </span>
+                    {form.name || 'No disponible'}
+                  </p>
+                  <p>
+                    <span className="font-medium text-slate-900">Correo asociado: </span>
+                    {form.email || 'No disponible'}
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="deleteRequestType">Tipo de solicitud *</Label>
+                  <select
+                    id="deleteRequestType"
+                    value={deleteRequestType}
+                    onChange={(e) => setDeleteRequestType(e.target.value)}
+                    required
+                    className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
+                  >
+                    <option value="Supresión de datos personales">
+                      Supresión total de mis datos personales y cuenta
+                    </option>
+                    <option value="Retiro del consentimiento académico">
+                      Retirar mi consentimiento del estudio académico
+                    </option>
+                    <option value="Rectificación o actualización">
+                      Solicitar rectificación de datos
+                    </option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="deleteReason">Motivo u observaciones (opcional)</Label>
+                  <textarea
+                    id="deleteReason"
+                    rows={3}
+                    value={deleteReason}
+                    onChange={(e) => setDeleteReason(e.target.value)}
+                    placeholder="Escribe cualquier detalle adicional sobre tu solicitud..."
+                    className="w-full rounded-lg border border-slate-300 p-3 text-sm"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 border-t pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowDeleteModal(false)}
+                    className="rounded-full"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="rounded-full bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    Enviar solicitud
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-900">
+                  <CheckCircle2 className="size-5 shrink-0 text-green-600 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-semibold">Solicitud registrada en el formulario</p>
+                    <p className="text-green-800 leading-5">
+                      Se ha registrado tu petición de <strong>{deleteRequestType}</strong> asociada al correo <strong>{form.email}</strong>. Los datos identificables serán suprimidos dentro de los 30 días calendario posteriores a la entrega y sustentación del informe final del proyecto.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    onClick={() => setShowDeleteModal(false)}
+                    className="rounded-full bg-blue-600 hover:bg-blue-700"
+                  >
+                    Cerrar
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

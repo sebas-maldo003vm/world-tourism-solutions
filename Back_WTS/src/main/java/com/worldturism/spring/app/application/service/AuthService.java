@@ -10,8 +10,9 @@ import com.worldturism.spring.app.presentation.dto.LoginRequest;
 import com.worldturism.spring.app.presentation.dto.RegisterRequest;
 import com.worldturism.spring.app.presentation.dto.ResetPasswordRequest;
 import com.worldturism.spring.app.presentation.dto.UserResponse;
-import java.util.UUID;
-import org.slf4j.Logger;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
+import java.util.UUID;import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -58,13 +59,32 @@ public class AuthService {
 		}
 
 		AppUser user = new AppUser();
-		user.setName(request.name());
-		user.setEmail(email);
-		user.setPassword(passwordEncoder.encode(request.password()));
-		user.setPhoneNumber(request.phoneNumber());
-		user.setRole(request.role());
+        user.setName(request.name());
+        user.setEmail(email);
+        user.setPassword(passwordEncoder.encode(request.password()));
+        user.setPhoneNumber(request.phoneNumber());
+        user.setRole(request.role());
 
-		AppUser savedUser = userRepository.saveAndFlush(user);
+        if (request.consent() != null) {
+            RegisterRequest.ConsentData consent = request.consent();
+            if (!Boolean.TRUE.equals(consent.termsAccepted())
+                    || !Boolean.TRUE.equals(consent.dataProcessingAccepted())
+                    || !Boolean.TRUE.equals(consent.adultConfirmed())) {
+                throw new IllegalArgumentException(
+                        "Debe aceptar los terminos, el tratamiento de datos y confirmar mayoria de edad.");
+            }
+            user.setTermsAccepted(true);
+            user.setDataProcessingAccepted(true);
+            user.setAdultConfirmed(true);
+            user.setStudyParticipationAccepted(Boolean.TRUE.equals(consent.studyParticipationAccepted()));
+            user.setLegalDocumentVersion(
+                    consent.documentVersion() != null && !consent.documentVersion().isBlank()
+                            ? consent.documentVersion()
+                            : "1.0");
+            user.setConsentAcceptedAt(parseConsentTimestamp(consent.acceptedAt()));
+        }
+
+        AppUser savedUser = userRepository.saveAndFlush(user);
 		UUID authUserId = supabaseAuthClient.createConfirmedUser(
 				email,
 				request.password(),
@@ -136,8 +156,19 @@ public class AuthService {
 		});
 	}
 
-	private AuthResponse buildAuthResponse(AppUser user) {
-		String token = jwtService.generateToken(user);
-		return new AuthResponse(token, "Bearer", UserResponse.from(user));
-	}
+	private Instant parseConsentTimestamp(String acceptedAt) {
+        if (acceptedAt == null || acceptedAt.isBlank()) {
+            return Instant.now();
+        }
+        try {
+            return Instant.parse(acceptedAt);
+        } catch (DateTimeParseException ex) {
+            return Instant.now();
+        }
+    }
+
+    private AuthResponse buildAuthResponse(AppUser user) {
+        String token = jwtService.generateToken(user);
+        return new AuthResponse(token, "Bearer", UserResponse.from(user));
+    }
 }

@@ -7,20 +7,23 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 public record RegisterRequest(
-		@NotBlank(message = "El nombre es obligatorio")
-		String name,
+		@NotBlank(message = "El nombre es obligatorio") String name,
 
-		@NotBlank(message = "El correo es obligatorio")
-		@Email(message = "El correo no tiene un formato valido")
-		String email,
+		@NotBlank(message = "El correo es obligatorio") @Email(message = "El correo no tiene un formato valido") String email,
 
-		@NotBlank(message = "La contrasena es obligatoria")
-		@Size(min = 8, message = "La contrasena debe tener minimo 8 caracteres")
-		String password,
+		@NotBlank(message = "La contrasena es obligatoria") @Size(min = 8, message = "La contrasena debe tener minimo 8 caracteres") String password,
 
-		@NotBlank(message = "El numero es obligatorio")
-		String phoneNumber,
+		@NotBlank(message = "El numero es obligatorio") String phoneNumber,
+		@NotNull(message = "El rol es obligatorio") Role role,
 
-		@NotNull(message = "El rol es obligatorio")
-		Role role) {
+		ConsentData consent) {
+
+	public record ConsentData(
+			Boolean termsAccepted,
+			Boolean dataProcessingAccepted,
+			Boolean adultConfirmed,
+			Boolean studyParticipationAccepted,
+			String documentVersion,
+			String acceptedAt) {
+	}
 }

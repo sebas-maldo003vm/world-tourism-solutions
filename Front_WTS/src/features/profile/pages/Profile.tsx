@@ -18,7 +18,9 @@ import {
   User,
   Bookmark,
   Calendar,
-  Settings
+  Settings ,
+   ShieldCheck,
+  
 } from 'lucide-react';
 import { Badge } from '@/shared/components/ui/badge';
 
@@ -137,12 +139,41 @@ export function Profile() {
   const [bookingsLoading, setBookingsLoading] = useState(false);
 
   const { user } = useAuth();
+  const initialAction = searchParams.get('action');
+  const [privacyRequest, setPrivacyRequest] = useState(
+    initialAction === 'delete-data' ? 'Supresión de datos personales' : ''
+  );
+  const [privacyDetails, setPrivacyDetails] = useState('');
+  const [privacyConfirmed, setPrivacyConfirmed] = useState(false);
+  const [privacyRequestSent, setPrivacyRequestSent] = useState(false);
 
   // ROLES
   const isTurista = user?.role === 'USER';
-
   const isProvider = user?.role === 'PROVIDER';
 
+  useEffect(() => {
+    if (searchParams.get('action') === 'delete-data') {
+      setPrivacyRequest('Supresión de datos personales');
+      const section = document.getElementById('privacy-request-section');
+      section?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [searchParams]);
+
+  const handlePrivacyRequest = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!privacyRequest) {
+      alert('Selecciona el tipo de solicitud.');
+      return;
+    }
+
+    if (!privacyConfirmed) {
+      alert('Debes confirmar que deseas radicar esta solicitud.');
+      return;
+    }
+
+    setPrivacyRequestSent(true);
+  };
   useEffect(() => {
     if (!isTurista) {
       return;
@@ -225,6 +256,155 @@ export function Profile() {
 
           </CardContent>
 
+        </Card>
+        {/* ================= PRIVACIDAD Y DATOS PERSONALES ================= */}        <Card id="privacy-request-section" className="mb-6">
+          <CardContent className="p-6 space-y-5">
+            <div>
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-blue-600" />
+                Privacidad y mis datos personales
+              </h2>
+
+              <p className="text-sm text-gray-600 mt-2">
+                Puedes ejercer tus derechos sobre tus datos personales y
+                solicitar el retiro de tu participación en el estudio o la
+                supresión de tu información.
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-blue-50 border border-blue-100 p-4">
+              <h3 className="font-medium text-gray-900 mb-2">
+                Tus derechos (Ley 1581 de 2012)
+              </h3>
+
+              <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700">
+                <li>Conocer y consultar tus datos personales.</li>
+                <li>Solicitar actualización o rectificación de tu información.</li>
+                <li>Retirar tu consentimiento para participar en el estudio.</li>
+                <li>Solicitar la supresión de tus datos personales.</li>
+              </ul>
+            </div>
+
+            <form onSubmit={handlePrivacyRequest} className="space-y-4">
+              <h3 className="font-semibold text-gray-900">
+                Formulario de solicitud de privacidad y eliminación de datos
+              </h3>
+
+              <div className="grid sm:grid-cols-2 gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                <p>
+                  <span className="font-medium text-gray-900">Titular: </span>
+                  {user?.name || 'No disponible'}
+                </p>
+                <p>
+                  <span className="font-medium text-gray-900">Correo: </span>
+                  {user?.email || 'No disponible'}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Tipo de solicitud
+                </label>
+
+                <select
+                  value={privacyRequest}
+                  onChange={(event) => {
+                    setPrivacyRequest(event.target.value);
+                    setPrivacyRequestSent(false);
+                  }}
+                  required
+                  className="w-full rounded-lg border border-gray-300 p-3 text-sm"
+                >
+                  <option value="">Selecciona una opción</option>
+                  <option value="Supresión de datos personales">
+                    Solicitar eliminación / supresión de mis datos
+                  </option>
+                  <option value="Retiro del consentimiento académico">
+                    Retirar mi participación en el estudio académico
+                  </option>
+                  <option value="Acceso a datos personales">
+                    Consultar mis datos personales
+                  </option>
+                  <option value="Actualización o rectificación de datos">
+                    Actualizar o rectificar mis datos
+                  </option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Motivo o detalles de la solicitud (opcional)
+                </label>
+
+                <textarea
+                  value={privacyDetails}
+                  onChange={(event) => {
+                    setPrivacyDetails(event.target.value);
+                    setPrivacyRequestSent(false);
+                  }}
+                  rows={3}
+                  placeholder="Indica el detalle de tu solicitud de supresión o actualización..."
+                  className="w-full rounded-lg border border-gray-300 p-3 text-sm"
+                />
+              </div>
+
+              <label className="flex items-start gap-2.5 text-sm text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={privacyConfirmed}
+                  onChange={(event) => {
+                    setPrivacyConfirmed(event.target.checked);
+                    setPrivacyRequestSent(false);
+                  }}
+                  required
+                  className="mt-1 size-4 accent-blue-600"
+                />
+                <span>
+                  Confirmo que deseo registrar esta solicitud sobre mis datos
+                  personales asociados a la cuenta <strong>{user?.email}</strong>.
+                </span>
+              </label>
+
+              <Button
+                type="submit"
+                disabled={!privacyRequest || !privacyConfirmed}
+                className="rounded-full bg-blue-600 hover:bg-blue-700"
+              >
+                Registrar solicitud
+              </Button>
+
+              {privacyRequestSent && (
+                <div
+                  role="status"
+                  className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800 space-y-1"
+                >
+                  <p className="font-semibold">
+                    Solicitud registrada en el formulario ({privacyRequest})
+                  </p>
+                  <p>
+                    Tu petición ha quedado documentada para revisión por parte del
+                    equipo responsable del proyecto académico. La eliminación de
+                    datos no es automática y se ejecuta conforme al procedimiento
+                    indicado abajo.
+                  </p>
+                </div>
+              )}
+            </form>
+
+            <div className="border-t pt-4 space-y-2">
+              <h3 className="font-semibold text-gray-900">
+                Procedimiento de eliminación
+              </h3>
+
+              <p className="text-sm text-gray-600 leading-6">
+                Las solicitudes de supresión serán revisadas por los responsables
+                del proyecto. La eliminación de los datos identificables
+                utilizados en el estudio se realizará dentro de los treinta (30)
+                días calendario posteriores a la entrega y sustentación del
+                informe final, conforme al procedimiento académico establecido.
+              </p>
+            </div>
+          </CardContent>
         </Card>
 
         {/* ================= USER ================= */}
