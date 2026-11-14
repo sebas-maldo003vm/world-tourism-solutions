@@ -5,7 +5,7 @@
 //   3) GET /api/businesses/{id}               (línea base: lectura puntual)
 //
 // Variables de entorno (-e NOMBRE=valor):
-//   BASE_URL     URL base (por defecto http://localhost:8080)
+//   BASE_URL     URL base
 //   PERFIL       smoke | carga (por defecto smoke)
 //   VUS          usuarios virtuales pico en el perfil carga (por defecto 5)
 //   THINK_TIME_S pausa entre peticiones de un usuario, en segundos (por defecto 1)
@@ -15,12 +15,15 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
-const BASE_URL = (__ENV.BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
+const BASE_URL = (
+  __ENV.BASE_URL || 'https://world-tourism-solutions.onrender.com'
+).replace(/\/$/, '');
 const API = `${BASE_URL}/api/businesses`;
 const PERFIL = __ENV.PERFIL || 'smoke';
 const VUS = parseInt(__ENV.VUS || '5', 10);
 const THINK_TIME_S = parseFloat(__ENV.THINK_TIME_S || '1');
-const IDS = (__ENV.BUSINESS_IDS || '6,8,9,10,11,12,13,14,15,16,17')
+const IDS = (__ENV.BUSINESS_IDS ||
+  '16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,50,51')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);

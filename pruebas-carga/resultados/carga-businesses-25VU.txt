@@ -1,0 +1,63 @@
+﻿
+
+  █ THRESHOLDS 
+
+    checks
+    ✓ 'rate>0.99' rate=100.00%
+
+    http_req_duration{endpoint:detalle}
+    ✓ 'p(95)<800' p(95)=627.22ms
+
+    http_req_duration{endpoint:espacial}
+    ✓ 'p(95)<1000' p(95)=744.69ms
+
+    http_req_duration{endpoint:listado}
+    ✓ 'p(95)<1000' p(95)=757.25ms
+
+    http_req_failed{endpoint:detalle}
+    ✓ 'rate<0.01' rate=0.00%
+
+    http_req_failed{endpoint:espacial}
+    ✓ 'rate<0.01' rate=0.00%
+
+    http_req_failed{endpoint:listado}
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 7126    22.909009/s
+    checks_succeeded...: 100.00% 7126 out of 7126
+    checks_failed......: 0.00%   0 out of 7126
+
+    ✓ espacial: status 200
+    ✓ espacial: respuesta es un arreglo JSON
+    ✓ listado: status 200
+    ✓ listado: respuesta es un arreglo JSON
+    ✓ detalle: status 200
+    ✓ detalle: el id coincide
+
+    HTTP
+    http_req_duration..............: avg=539.27ms min=338.17ms med=502ms    max=1.09s    p(90)=731.26ms p(95)=748.87ms p(99)=856ms   
+      { endpoint:detalle }.........: avg=542.79ms min=470.32ms med=522.18ms max=907.02ms p(90)=620.82ms p(95)=627.22ms p(99)=725.51ms
+      { endpoint:espacial }........: avg=476.3ms  min=338.17ms med=471.34ms max=1.08s    p(90)=655.82ms p(95)=744.69ms p(99)=876.39ms
+      { endpoint:listado }.........: avg=601.84ms min=372.43ms med=583.5ms  max=1.06s    p(90)=748.23ms p(95)=757.25ms p(99)=878.12ms
+      { expected_response:true }...: avg=539.27ms min=338.17ms med=502ms    max=1.09s    p(90)=731.26ms p(95)=748.87ms p(99)=856ms   
+    http_req_failed................: 0.00%  0 out of 3569
+      { endpoint:detalle }.........: 0.00%  0 out of 1186
+      { endpoint:espacial }........: 0.00%  0 out of 1234
+      { endpoint:listado }.........: 0.00%  0 out of 1143
+    http_reqs......................: 3569   11.473794/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.54s    min=1.33s    med=1.5s     max=2.08s    p(90)=1.73s    p(95)=1.75s    p(99)=1.87s   
+    iterations.....................: 3563   11.454504/s
+    vus............................: 2      min=0         max=25
+    vus_max........................: 25     min=25        max=25
+
+    NETWORK
+    data_received..................: 28 MB  89 kB/s
+    data_sent......................: 291 kB 937 B/s
+
+
+
