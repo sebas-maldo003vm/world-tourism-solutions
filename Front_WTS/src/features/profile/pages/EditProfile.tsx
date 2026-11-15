@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/shared/components/ui/card';
 import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/ui/input';
 import { Label } from '@/shared/components/ui/label';
+import { chatApi } from '@/features/chat/services/chatApi';
 import {
   profileService,
 } from '@/features/profile/services/profileService';
@@ -48,19 +49,53 @@ export function EditProfile() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteRequestType, setDeleteRequestType] = useState('Supresión de datos personales');
   const [deleteReason, setDeleteReason] = useState('');
+  const [submittingDeleteRequest, setSubmittingDeleteRequest] = useState(false);
   const [deleteRequestSubmitted, setDeleteRequestSubmitted] = useState(false);
+  const [createdTicketId, setCreatedTicketId] = useState<number | null>(null);
 
   const handleOpenDeleteModal = () => {
     setDeleteRequestType('Supresión de datos personales');
     setDeleteReason('');
     setDeleteRequestSubmitted(false);
+    setCreatedTicketId(null);
     setShowDeleteModal(true);
   };
 
-  const handleDeleteRequestSubmit = (e: React.FormEvent) => {
+  const handleDeleteRequestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setDeleteRequestSubmitted(true);
-    toast.success('Solicitud de eliminación diligenciada.');
+    if (submittingDeleteRequest) return;
+
+    const subject = `[Privacidad / A6] ${deleteRequestType}`.slice(0, 200);
+    const initialMessage = [
+      'SOLICITUD DE PRIVACIDAD Y DATOS PERSONALES (A6 - LEY 1581 DE 2012)',
+      `• Tipo de solicitud: ${deleteRequestType}`,
+      `• Titular: ${form.name || 'No disponible'}`,
+      `• Correo asociado: ${form.email || 'No disponible'}`,
+      `• Teléfono: ${form.phoneNumber || 'No registrado'}`,
+      `• Motivo / Detalles: ${deleteReason.trim() || 'Sin observaciones adicionales.'}`,
+      '• Procedimiento: Supresión dentro de los 30 días calendario posteriores a la entrega y sustentación del informe final.',
+    ]
+      .join('\n')
+      .slice(0, 2000);
+
+    try {
+      setSubmittingDeleteRequest(true);
+      const { data } = await chatApi.createSupportTicket({
+        subject,
+        initialMessage,
+      });
+      setCreatedTicketId(data.id);
+      setDeleteRequestSubmitted(true);
+      toast.success(`Solicitud radicada bajo el ticket #${data.id}.`);
+    } catch (error: unknown) {
+      const message =
+        error && typeof error === 'object' && 'response' in error
+          ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
+          : undefined;
+      toast.error(message || 'No se pudo radicar el ticket de privacidad. Intenta nuevamente.');
+    } finally {
+      setSubmittingDeleteRequest(false);
+    }
   };
   useEffect(() => {
     let cancelled = false;
@@ -539,10 +574,11 @@ export function EditProfile() {
                   />
                 </div>
 
-                <div className="flex justify-end gap-3 border-t pt-4">
+             <div className="flex justify-end gap-3 border-t pt-4">
                   <Button
                     type="button"
                     variant="outline"
+                    disabled={submittingDeleteRequest}
                     onClick={() => setShowDeleteModal(false)}
                     className="rounded-full"
                   >
@@ -550,9 +586,10 @@ export function EditProfile() {
                   </Button>
                   <Button
                     type="submit"
+                    disabled={submittingDeleteRequest}
                     className="rounded-full bg-red-600 hover:bg-red-700 text-white"
                   >
-                    Enviar solicitud
+                    {submittingDeleteRequest ? 'Radicando ticket...' : 'Enviar solicitud'}
                   </Button>
                 </div>
               </form>
@@ -561,21 +598,39 @@ export function EditProfile() {
                 <div className="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-900">
                   <CheckCircle2 className="size-5 shrink-0 text-green-600 mt-0.5" />
                   <div className="space-y-1">
-                    <p className="font-semibold">Solicitud registrada en el formulario</p>
+                    <p className="font-semibold">
+                      Solicitud radicada {createdTicketId ? `(Ticket #${createdTicketId})` : ''}
+                    </p>
                     <p className="text-green-800 leading-5">
-                      Se ha registrado tu petición de <strong>{deleteRequestType}</strong> asociada al correo <strong>{form.email}</strong>. Los datos identificables serán suprimidos dentro de los 30 días calendario posteriores a la entrega y sustentación del informe final del proyecto.
+                      Tu petición de <strong>{deleteRequestType}</strong> asociada al correo{' '}
+                      <strong>{form.email}</strong> fue enviada al equipo de soporte. Los datos
+                      identificables serán suprimidos dentro de los 30 días calendario posteriores a
+                      la entrega y sustentación del informe final del proyecto.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
                   <Button
                     type="button"
+                    variant="outline"
                     onClick={() => setShowDeleteModal(false)}
-                    className="rounded-full bg-blue-600 hover:bg-blue-700"
+                    className="rounded-full"
                   >
                     Cerrar
                   </Button>
+                  {createdTicketId && (
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        setShowDeleteModal(false);
+                        navigate(`/chat?conversation=${createdTicketId}`);
+                      }}
+                      className="rounded-full bg-blue-600 hover:bg-blue-700"
+                    >
+                      Ver ticket en Mensajes
+                    </Button>
+                  )}
                 </div>
               </div>
             )}

@@ -7,7 +7,8 @@ import {
   TabsList,
   TabsTrigger
 } from '@/shared/components/ui/tabs';
-
+import { chatApi } from '@/features/chat/services/chatApi';
+import { toast } from 'sonner';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, API_ORIGIN } from '@/core/api/client';
 import { useAuth } from '@/features/auth/context/AuthContext';
@@ -159,20 +160,51 @@ export function Profile() {
     }
   }, [searchParams]);
 
-  const handlePrivacyRequest = (e: React.FormEvent) => {
+const [submittingPrivacy, setSubmittingPrivacy] = useState(false);
+  const [createdTicketId, setCreatedTicketId] = useState<number | null>(null);
+
+  const handlePrivacyRequest = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingPrivacy) return;
 
     if (!privacyRequest) {
-      alert('Selecciona el tipo de solicitud.');
+      toast.error('Selecciona el tipo de solicitud.');
       return;
     }
 
     if (!privacyConfirmed) {
-      alert('Debes confirmar que deseas radicar esta solicitud.');
+      toast.error('Debes confirmar que deseas radicar esta solicitud.');
       return;
     }
 
-    setPrivacyRequestSent(true);
+    const subject = `[Privacidad / A6] ${privacyRequest}`.slice(0, 200);
+    const initialMessage = [
+      'SOLICITUD DE PRIVACIDAD Y DATOS PERSONALES (A6 - LEY 1581 DE 2012)',
+      `• Tipo de solicitud: ${privacyRequest}`,
+      `• Titular: ${user?.name || 'No disponible'}`,
+      `• Correo asociado: ${user?.email || 'No disponible'}`,
+      `• Motivo / Detalles: ${privacyDetails.trim() || 'Sin observaciones adicionales.'}`,
+      '• Procedimiento: Supresión dentro de los 30 días calendario posteriores a la entrega y sustentación del informe final.',
+    ]
+      .join('\n')
+      .slice(0, 2000);
+
+    try {
+      setSubmittingPrivacy(true);
+      const { data } = await chatApi.createSupportTicket({ subject, initialMessage });
+      setCreatedTicketId(data.id);
+      setPrivacyRequestSent(true);
+      toast.success(`Solicitud radicada bajo el ticket #${data.id}.`);
+    } catch (error: unknown) {
+      console.error('Error radicando ticket A6 desde Profile:', error);
+      const message =
+        error && typeof error === 'object' && 'response' in error
+          ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
+          : undefined;
+      toast.error(message || 'No se pudo radicar la solicitud en soporte. Intenta nuevamente.');
+    } finally {
+      setSubmittingPrivacy(false);
+    }
   };
   useEffect(() => {
     if (!isTurista) {
@@ -365,28 +397,40 @@ export function Profile() {
                 </span>
               </label>
 
-              <Button
+             <Button
                 type="submit"
-                disabled={!privacyRequest || !privacyConfirmed}
+                disabled={!privacyRequest || !privacyConfirmed || submittingPrivacy}
                 className="rounded-full bg-blue-600 hover:bg-blue-700"
               >
-                Registrar solicitud
+                {submittingPrivacy ? 'Radicando ticket...' : 'Registrar solicitud'}
               </Button>
 
               {privacyRequestSent && (
                 <div
                   role="status"
-                  className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800 space-y-1"
+                  className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800 space-y-3"
                 >
-                  <p className="font-semibold">
-                    Solicitud registrada en el formulario ({privacyRequest})
-                  </p>
-                  <p>
-                    Tu petición ha quedado documentada para revisión por parte del
-                    equipo responsable del proyecto académico. La eliminación de
-                    datos no es automática y se ejecuta conforme al procedimiento
-                    indicado abajo.
-                  </p>
+                  <div className="space-y-1">
+                    <p className="font-semibold">
+                      Solicitud radicada {createdTicketId ? `(Ticket #${createdTicketId})` : ''} — {privacyRequest}
+                    </p>
+                    <p>
+                      Tu petición fue enviada al equipo de soporte del proyecto académico. La eliminación de
+                      datos no es automática y se ejecuta conforme al procedimiento
+                      indicado abajo.
+                    </p>
+                  </div>
+
+                  {createdTicketId && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => navigate(`/chat?conversation=${createdTicketId}`)}
+                      className="rounded-full bg-green-700 hover:bg-green-800 text-white"
+                    >
+                      Ver ticket en Mensajes
+                    </Button>
+                  )}
                 </div>
               )}
             </form>
