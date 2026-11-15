@@ -1,0 +1,63 @@
+﻿
+
+  █ THRESHOLDS 
+
+    checks
+    ✓ 'rate>0.99' rate=100.00%
+
+    http_req_duration{endpoint:detalle}
+    ✗ 'p(95)<800' p(95)=1.36s
+
+    http_req_duration{endpoint:espacial}
+    ✓ 'p(95)<1000' p(95)=853.2ms
+
+    http_req_duration{endpoint:listado}
+    ✗ 'p(95)<1000' p(95)=1.78s
+
+    http_req_failed{endpoint:detalle}
+    ✓ 'rate<0.01' rate=0.00%
+
+    http_req_failed{endpoint:espacial}
+    ✓ 'rate<0.01' rate=0.00%
+
+    http_req_failed{endpoint:listado}
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 1218    3.908171/s
+    checks_succeeded...: 100.00% 1218 out of 1218
+    checks_failed......: 0.00%   0 out of 1218
+
+    ✓ espacial: status 200
+    ✓ espacial: respuesta es un arreglo JSON
+    ✓ listado: status 200
+    ✓ listado: respuesta es un arreglo JSON
+    ✓ detalle: status 200
+    ✓ detalle: el id coincide
+
+    HTTP
+    http_req_duration..............: avg=793.77ms min=353.78ms med=742.72ms max=2.56s p(90)=1.14s    p(95)=1.38s   p(99)=2.06s
+      { endpoint:detalle }.........: avg=811.53ms min=543.12ms med=740.12ms max=1.82s p(90)=1.09s    p(95)=1.36s   p(99)=1.82s
+      { endpoint:espacial }........: avg=577.76ms min=353.78ms med=533.37ms max=1.3s  p(90)=774.23ms p(95)=853.2ms p(99)=1.02s
+      { endpoint:listado }.........: avg=1.05s    min=512.25ms med=933.72ms max=2.56s p(90)=1.5s     p(95)=1.78s   p(99)=2.39s
+      { expected_response:true }...: avg=793.77ms min=353.78ms med=742.72ms max=2.56s p(90)=1.14s    p(95)=1.38s   p(99)=2.06s
+    http_req_failed................: 0.00%  0 out of 615
+      { endpoint:detalle }.........: 0.00%  0 out of 201
+      { endpoint:espacial }........: 0.00%  0 out of 230
+      { endpoint:listado }.........: 0.00%  0 out of 178
+    http_reqs......................: 615    1.973338/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.79s    min=1.35s    med=1.74s    max=3.56s p(90)=2.15s    p(95)=2.38s   p(99)=3.08s
+    iterations.....................: 609    1.954086/s
+    vus............................: 1      min=0        max=5
+    vus_max........................: 5      min=5        max=5
+
+    NETWORK
+    data_received..................: 4.7 MB 15 kB/s
+    data_sent......................: 58 kB  186 B/s
+
+
+
