@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-export const API_BASE_URL = 'https://world-tourism-solutions.onrender.com/api';
+export const API_BASE_URL =   'https://world-tourism-solutions.onrender.com/api';
 export const API_ORIGIN = API_BASE_URL.replace('/api', '');
 
 export const api = axios.create({

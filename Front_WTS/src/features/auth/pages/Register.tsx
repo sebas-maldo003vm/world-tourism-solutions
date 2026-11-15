@@ -24,6 +24,7 @@ import {
 import {
   INITIAL_LEGAL_CONSENT,
   isLegalConsentComplete,
+  LEGAL_TEXT_VERSION,
   LegalConsentChecklist,
   type LegalConsentValue,
 } from '@/shared/components/legal/LegalConsentChecklist';
@@ -70,15 +71,15 @@ export function Register() {
 
       case 'ADMIN':
       case 'SUPPORT':
-        navigate('/admin',{ replace: true });
+        navigate('/admin', { replace: true });
         break;
 
       case 'PROVIDER':
-        navigate('/dashboard-accesor',{ replace: true });
+        navigate('/dashboard-accesor', { replace: true });
         break;
 
       default:
-        navigate('/home-logueado',{ replace: true });
+        navigate('/home-logueado', { replace: true });
     }
   };
 
@@ -90,10 +91,11 @@ export function Register() {
 
     if (!isLegalConsentComplete(consent)) {
       setConsentError(
-        'Debes aceptar los términos y condiciones y la autorización de ubicación para registrarte.'
+        'Debes aceptar los términos y condiciones, autorizar el tratamiento de datos personales y confirmar que eres mayor de edad para continuar.'
       );
       return;
     }
+
 
     setConsentError(null);
 
@@ -122,9 +124,16 @@ export function Register() {
           name: formData.name,
           email: formData.email,
           password: formData.password,
-          phoneNumber:
-            formData.phoneNumber,
+          phoneNumber: formData.phoneNumber,
           role,
+          consent: {
+            termsAccepted: consent.termsAccepted === true,
+            dataProcessingAccepted: consent.dataProcessingAccepted === true,
+            adultConfirmed: consent.adultConfirmed === true,
+            studyParticipationAccepted: consent.studyParticipationAccepted === true,
+            documentVersion: LEGAL_TEXT_VERSION,
+            acceptedAt: new Date().toISOString(),
+          },
         }
       );
 
@@ -381,7 +390,6 @@ export function Register() {
               </select>
 
             </div>
-
             <LegalConsentChecklist
               value={consent}
               onChange={(next) => {
@@ -392,6 +400,7 @@ export function Register() {
               }}
               disabled={loading}
               idPrefix="register-consent"
+              role={formData.role === 'PROVIDER' ? 'PROVIDER' : 'USER'}
             />
 
             {consentError && !consentComplete && (
@@ -401,13 +410,24 @@ export function Register() {
             )}
 
             {/* BUTTON */}
-            <Button
+            {/*  <Button
+              type="submit"
+              disabled={loading}
+              onClick={() => {
+  if (!isLegalConsentComplete(consent)) {
+    setConsentError(
+      'Debes aceptar los términos y condiciones, autorizar el tratamiento de datos personales y confirmar que eres mayor de edad.'
+    );
+  }
+}}
+              className="w-full bg-blue-600 hover:bg-blue-700 rounded-full"
+            > */}<Button
               type="submit"
               disabled={loading}
               onClick={() => {
                 if (!isLegalConsentComplete(consent)) {
                   setConsentError(
-                    'Debes aceptar los términos y condiciones y la autorización de ubicación para registrarte.'
+                    'Debes aceptar los términos y condiciones, autorizar el tratamiento de datos personales y confirmar que eres mayor de edad.'
                   );
                 }
               }}

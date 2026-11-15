@@ -56,7 +56,26 @@ public class AppUser implements UserDetails {
 	private Role role;
 
 	@Column(nullable = false, columnDefinition = "boolean default true")
-	private Boolean isActive = true;
+    private Boolean isActive = true;
+
+    @Column(name = "terms_accepted", nullable = false, columnDefinition = "boolean default false")
+    private Boolean termsAccepted = false;
+
+    @Column(name = "data_processing_accepted", nullable = false, columnDefinition = "boolean default false")
+    private Boolean dataProcessingAccepted = false;
+
+    @Column(name = "adult_confirmed", nullable = false, columnDefinition = "boolean default false")
+    private Boolean adultConfirmed = false;
+
+    @Column(name = "study_participation_accepted", nullable = false, columnDefinition = "boolean default false")
+    private Boolean studyParticipationAccepted = false;
+
+    @Column(name = "legal_document_version", length = 20)
+    private String legalDocumentVersion;
+
+    @Column(name = "consent_accepted_at")
+    private Instant consentAcceptedAt;
+
 
 	@OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
 	private List<Itinerary> itineraries = new ArrayList<>();
@@ -254,6 +273,55 @@ public class AppUser implements UserDetails {
 	}
 
 	public void setUpdatedAt(Instant updatedAt) {
-		this.updatedAt = updatedAt;
-	}
+        this.updatedAt = updatedAt;
+    }
+
+    public Boolean getTermsAccepted() {
+        return termsAccepted;
+    }
+
+    public void setTermsAccepted(Boolean termsAccepted) {
+        this.termsAccepted = termsAccepted;
+    }
+
+    public Boolean getDataProcessingAccepted() {
+        return dataProcessingAccepted;
+    }
+
+    public void setDataProcessingAccepted(Boolean dataProcessingAccepted) {
+        this.dataProcessingAccepted = dataProcessingAccepted;
+    }
+
+    public Boolean getAdultConfirmed() {
+        return adultConfirmed;
+    }
+
+    public void setAdultConfirmed(Boolean adultConfirmed) {
+        this.adultConfirmed = adultConfirmed;
+    }
+
+    public Boolean getStudyParticipationAccepted() {
+        return studyParticipationAccepted;
+    }
+
+    public void setStudyParticipationAccepted(Boolean studyParticipationAccepted) {
+        this.studyParticipationAccepted = studyParticipationAccepted;
+    }
+
+    public String getLegalDocumentVersion() {
+        return legalDocumentVersion;
+    }
+
+    public void setLegalDocumentVersion(String legalDocumentVersion) {
+        this.legalDocumentVersion = legalDocumentVersion;
+    }
+
+    public Instant getConsentAcceptedAt() {
+        return consentAcceptedAt;
+    }
+
+    public void setConsentAcceptedAt(Instant consentAcceptedAt) {
+        this.consentAcceptedAt = consentAcceptedAt;
+    }
+
 }
